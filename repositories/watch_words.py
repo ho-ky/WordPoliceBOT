@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 import sqlite3
 
+from repositories.text import normalize_text
+
 
 @dataclass(frozen=True, slots=True)
 class WatchWord:
@@ -35,6 +37,10 @@ def _row_to_watch_word(row: sqlite3.Row) -> WatchWord:
     )
 
 
+def _normalized_word(word: str) -> str:
+    return normalize_text(word.strip())
+
+
 def add_watch_word(
     database_path: Path,
     *,
@@ -47,7 +53,21 @@ def add_watch_word(
     if not normalized_word:
         raise ValueError("word is required.")
 
+    incoming_normalized_word = _normalized_word(normalized_word)
+
     with _connect(database_path) as connection:
+        existing_words = connection.execute(
+            """
+            SELECT id, word
+            FROM watch_words
+            WHERE guild_id = ?
+            """,
+            (guild_id,),
+        ).fetchall()
+        for existing_word in existing_words:
+            if _normalized_word(existing_word["word"]) == incoming_normalized_word:
+                raise ValueError("同じ監視ワードはすでに登録されています。")
+
         cursor = connection.execute(
             """
             INSERT INTO watch_words (guild_id, word, notify_enabled, created_by)
@@ -109,11 +129,26 @@ def update_watch_word(
 ) -> WatchWord:
     updates: list[str] = []
     parameters: list[object] = []
+    normalized_update_word = _normalized_word(word) if word is not None else None
 
     if word is not None:
         normalized_word = word.strip()
         if not normalized_word:
             raise ValueError("word is required.")
+
+        with _connect(database_path) as connection:
+            existing_words = connection.execute(
+                """
+                SELECT id, word
+                FROM watch_words
+                WHERE guild_id = ? AND id != ?
+                """,
+                (guild_id, word_id),
+            ).fetchall()
+            for existing_word in existing_words:
+                if _normalized_word(existing_word["word"]) == normalized_update_word:
+                    raise ValueError("同じ監視ワードはすでに登録されています。")
+
         updates.append("word = ?")
         parameters.append(normalized_word)
 
