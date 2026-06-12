@@ -6,12 +6,20 @@ import sqlite3
 import discord
 from discord import app_commands
 
+from repositories.detections import DetectionRankingRow
 from repositories.watch_words import (
     WatchWord,
     add_watch_word,
     delete_watch_word,
     list_watch_words,
     update_watch_word,
+)
+from services.stats import (
+    DEFAULT_RANKING_LIMIT,
+    get_watch_word_or_raise,
+    get_word_detection_count,
+    get_word_detection_ranking,
+    validate_ranking_limit,
 )
 
 
@@ -29,6 +37,20 @@ def _format_watch_word(word: WatchWord) -> str:
     status = "ON" if word.notify_enabled else "OFF"
     creator = f"<@{word.created_by}>" if word.created_by is not None else "unknown"
     return f"`{word.id}` | `{word.word}` | notify:{status} | created_by:{creator}"
+
+
+def _format_period(from_date: str | None, to_date: str | None) -> str:
+    if from_date is None and to_date is None:
+        return "全期間"
+    if from_date is not None and to_date is not None:
+        return f"{from_date} から {to_date} まで"
+    if from_date is not None:
+        return f"{from_date} 以降"
+    return f"{to_date} 以前"
+
+
+def _format_ranking_line(rank: int, row: DetectionRankingRow) -> str:
+    return f"{rank}. <@{row.user_id}> {row.count}回"
 
 
 @word_group.command(name="add", description="監視ワードを追加します")
@@ -138,3 +160,108 @@ async def delete(interaction: discord.Interaction, word_id: int) -> None:
         return
 
     await interaction.response.send_message("監視ワードを削除しました。", ephemeral=True)
+
+
+@word_group.command(name="stats", description="監視ワードの検出数を集計します")
+@app_commands.guild_only()
+@app_commands.describe(
+    word_id="集計する監視ワードのID",
+    from_date="集計開始日 (YYYY-MM-DD)",
+    to_date="集計終了日 (YYYY-MM-DD)",
+)
+@app_commands.rename(from_date="from", to_date="to")
+async def stats(
+    interaction: discord.Interaction,
+    word_id: int,
+    from_date: str | None = None,
+    to_date: str | None = None,
+) -> None:
+    assert interaction.guild_id is not None
+    database_path = _get_database_path(interaction)
+
+    try:
+        watch_word = get_watch_word_or_raise(
+            database_path,
+            guild_id=interaction.guild_id,
+            word_id=word_id,
+        )
+        count = get_word_detection_count(
+            database_path,
+            guild_id=interaction.guild_id,
+            word_id=word_id,
+            from_date=from_date,
+            to_date=to_date,
+        )
+    except LookupError:
+        await interaction.response.send_message("指定した監視ワードが見つかりません。", ephemeral=True)
+        return
+    except ValueError as exc:
+        await interaction.response.send_message(str(exc), ephemeral=True)
+        return
+    except Exception as exc:
+        await interaction.response.send_message(f"集計に失敗しました: {exc}", ephemeral=True)
+        return
+
+    period_label = _format_period(from_date, to_date)
+    await interaction.response.send_message(
+        f"`{watch_word.word}` の検出数: {count}回\n対象期間: {period_label}",
+        ephemeral=True,
+    )
+
+
+@word_group.command(name="ranking", description="監視ワードの検出ランキングを表示します")
+@app_commands.guild_only()
+@app_commands.describe(
+    word_id="集計する監視ワードのID",
+    from_date="集計開始日 (YYYY-MM-DD)",
+    to_date="集計終了日 (YYYY-MM-DD)",
+    limit="表示件数",
+)
+@app_commands.rename(from_date="from", to_date="to")
+async def ranking(
+    interaction: discord.Interaction,
+    word_id: int,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    limit: int = DEFAULT_RANKING_LIMIT,
+) -> None:
+    assert interaction.guild_id is not None
+    database_path = _get_database_path(interaction)
+
+    try:
+        watch_word = get_watch_word_or_raise(
+            database_path,
+            guild_id=interaction.guild_id,
+            word_id=word_id,
+        )
+        validated_limit = validate_ranking_limit(limit)
+        rows = get_word_detection_ranking(
+            database_path,
+            guild_id=interaction.guild_id,
+            word_id=word_id,
+            from_date=from_date,
+            to_date=to_date,
+            limit=validated_limit,
+        )
+    except LookupError:
+        await interaction.response.send_message("指定した監視ワードが見つかりません。", ephemeral=True)
+        return
+    except ValueError as exc:
+        await interaction.response.send_message(str(exc), ephemeral=True)
+        return
+    except Exception as exc:
+        await interaction.response.send_message(f"集計に失敗しました: {exc}", ephemeral=True)
+        return
+
+    if not rows:
+        await interaction.response.send_message(
+            f"`{watch_word.word}` の対象期間内の検出はありません。",
+            ephemeral=True,
+        )
+        return
+
+    period_label = _format_period(from_date, to_date)
+    lines = [f"`{watch_word.word}` のランキング ({period_label}, 上位{validated_limit}件)"]
+    lines.extend(_format_ranking_line(index + 1, row) for index, row in enumerate(rows))
+    embed = discord.Embed(title="検出ランキング", description="\n".join(lines))
+    await interaction.response.send_message(embed=embed, ephemeral=True)

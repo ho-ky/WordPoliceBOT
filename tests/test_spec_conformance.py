@@ -3,10 +3,9 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-import pytest
-
 from database import initialize_database
-from repositories.watch_words import _connect, add_watch_word, list_watch_words
+from repositories.text import normalize_text
+from repositories.watch_words import _connect, add_watch_word
 
 
 def test_initialize_sets_wal(tmp_path: Path) -> None:
@@ -47,5 +46,5 @@ def test_add_watch_word_keeps_original_display_value(tmp_path: Path) -> None:
     assert created.word == input_word.strip()
 
 
-def test_detection_normalization_not_implemented() -> None:
-    pytest.skip("検出ハンドラが未実装のため、判定時の正規化はテスト不可")
+def test_detection_normalization_is_applied() -> None:
+    assert normalize_text("ＡＢＣabc") == "abcabc"
