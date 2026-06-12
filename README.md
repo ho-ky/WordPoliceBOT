@@ -42,7 +42,7 @@ Discord サーバー内のメッセージから、ユーザーが設定した任
 - `DATABASE_PATH`  `任意`  `既定: data/wordpolice.db`
 - `COMMAND_GUILD_ID`
 
-## 備考
+## 注意事項
 
 - 検出ログの `detected_at` は UTC で保存します。
 - 期間指定の入力は日本時間（JST）で解釈する前提です。
