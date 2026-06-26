@@ -33,10 +33,31 @@ def _get_database_path(interaction: discord.Interaction) -> Path:
     return database_path
 
 
-def _format_watch_word(word: WatchWord) -> str:
+async def _get_creator_label(interaction: discord.Interaction, user_id: int | None) -> str:
+    if user_id is None:
+        return "unknown"
+
+    if interaction.guild is not None:
+        member = interaction.guild.get_member(user_id)
+        if member is not None:
+            return member.display_name
+        try:
+            member = await interaction.guild.fetch_member(user_id)
+        except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+            member = None
+        if member is not None:
+            return member.display_name
+
+    user = interaction.client.get_user(user_id)
+    if user is not None:
+        return user.display_name
+
+    return "unknown"
+
+
+def _format_watch_word(word: WatchWord, *, creator_label: str) -> str:
     status = "ON" if word.notify_enabled else "OFF"
-    creator = f"<@{word.created_by}>" if word.created_by is not None else "unknown"
-    return f"`{word.id}` | `{word.word}` | 通知: {status} | 作成者: {creator}"
+    return f"`{word.id}` | `{word.word}` | 通知: {status} | 作成者: {creator_label}"
 
 
 def _format_period(from_date: str | None, to_date: str | None) -> str:
@@ -82,8 +103,9 @@ async def add(
         await interaction.response.send_message(f"登録に失敗しました: {exc}", ephemeral=True)
         return
 
+    creator_label = await _get_creator_label(interaction, created_word.created_by)
     await interaction.response.send_message(
-        f"監視ワードを追加しました: {_format_watch_word(created_word)}",
+        f"監視ワードを追加しました: {_format_watch_word(created_word, creator_label=creator_label)}",
         ephemeral=True,
     )
 
@@ -100,7 +122,9 @@ async def word_list(interaction: discord.Interaction) -> None:
         return
 
     lines = ["監視ワード一覧:"]
-    lines.extend(_format_watch_word(word) for word in words)
+    for word in words:
+        creator_label = await _get_creator_label(interaction, word.created_by)
+        lines.append(_format_watch_word(word, creator_label=creator_label))
     await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
 
@@ -141,8 +165,9 @@ async def edit(
         await interaction.response.send_message(f"更新に失敗しました: {exc}", ephemeral=True)
         return
 
+    creator_label = await _get_creator_label(interaction, updated_word.created_by)
     await interaction.response.send_message(
-        f"監視ワードを更新しました: {_format_watch_word(updated_word)}",
+        f"監視ワードを更新しました: {_format_watch_word(updated_word, creator_label=creator_label)}",
         ephemeral=True,
     )
 
