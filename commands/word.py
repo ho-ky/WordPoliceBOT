@@ -36,7 +36,7 @@ def _get_database_path(interaction: discord.Interaction) -> Path:
 def _format_watch_word(word: WatchWord) -> str:
     status = "ON" if word.notify_enabled else "OFF"
     creator = f"<@{word.created_by}>" if word.created_by is not None else "unknown"
-    return f"`{word.id}` | `{word.word}` | notify:{status} | created_by:{creator}"
+    return f"`{word.id}` | `{word.word}` | 通知: {status} | 作成者: {creator}"
 
 
 def _format_period(from_date: str | None, to_date: str | None) -> str:
