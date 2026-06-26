@@ -22,6 +22,9 @@ from services.stats import (
     validate_ranking_limit,
 )
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 
 word_group = app_commands.Group(name="word", description="監視ワードを管理します")
 
@@ -60,14 +63,38 @@ def _format_watch_word(word: WatchWord, *, creator_label: str) -> str:
     return f"`{word.id}` | `{word.word}` | 通知: {status} | 作成者: {creator_label}"
 
 
+def _to_discord_timestamp(date_str: str) -> str:
+    """文字列の日付をDiscord用タイムスタンプ構文に変換する"""
+    try:
+        # ハイフンが含まれているかでフォーマットを動的に判定
+        if "-" in date_str:
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
+        else:
+            # 20260606 のようなハイフンなし(8桁)の入力に対応
+            dt = datetime.strptime(date_str, "%Y%m%d")
+            
+        dt = dt.replace(tzinfo=ZoneInfo("Asia/Tokyo"))
+        unix_ts = int(dt.timestamp())
+        
+        return f"<t:{unix_ts}:d>"
+        
+    except ValueError:
+        # 想定外の入力（例: "あいうえお"など）が来た場合はそのまま返す
+        return date_str.replace('-', '/')
+
 def _format_period(from_date: str | None, to_date: str | None) -> str:
     if from_date is None and to_date is None:
         return "全期間"
-    if from_date is not None and to_date is not None:
-        return f"{from_date} から {to_date} まで"
-    if from_date is not None:
-        return f"{from_date} 以降"
-    return f"{to_date} 以前"
+
+    # ヘルパー関数を通してDiscord用文字列に変換
+    from_str = _to_discord_timestamp(from_date) if from_date else None
+    to_str = _to_discord_timestamp(to_date) if to_date else None
+
+    if from_str and to_str:
+        return f"{from_str} から {to_str} まで"
+    if from_str:
+        return f"{from_str} 以降"
+    return f"{to_str} 以前"
 
 
 def _format_ranking_line(rank: int, row: DetectionRankingRow) -> str:
