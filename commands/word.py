@@ -107,7 +107,7 @@ def _format_ranking_line(rank: int, row: DetectionRankingRow) -> str:
 async def add(
     interaction: discord.Interaction,
     word: str,
-    notify_enabled: bool = True,
+    notify_enabled: bool,
 ) -> None:
     assert interaction.guild_id is not None
     database_path = _get_database_path(interaction)
