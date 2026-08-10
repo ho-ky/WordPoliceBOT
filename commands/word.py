@@ -22,6 +22,9 @@ from services.stats import (
     validate_ranking_limit,
 )
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 
 word_group = app_commands.Group(name="word", description="監視ワードを管理します")
 
@@ -33,20 +36,65 @@ def _get_database_path(interaction: discord.Interaction) -> Path:
     return database_path
 
 
-def _format_watch_word(word: WatchWord) -> str:
-    status = "ON" if word.notify_enabled else "OFF"
-    creator = f"<@{word.created_by}>" if word.created_by is not None else "unknown"
-    return f"`{word.id}` | `{word.word}` | notify:{status} | created_by:{creator}"
+async def _get_creator_label(interaction: discord.Interaction, user_id: int | None) -> str:
+    if user_id is None:
+        return "unknown"
 
+    if interaction.guild is not None:
+        member = interaction.guild.get_member(user_id)
+        if member is not None:
+            return member.display_name
+        try:
+            member = await interaction.guild.fetch_member(user_id)
+        except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+            member = None
+        if member is not None:
+            return member.display_name
+
+    user = interaction.client.get_user(user_id)
+    if user is not None:
+        return user.display_name
+
+    return "unknown"
+
+
+def _format_watch_word(word: WatchWord, *, creator_label: str) -> str:
+    status = "ON" if word.notify_enabled else "OFF"
+    return f"`{word.id}` | `{word.word}` | 通知: {status} | 作成者: {creator_label}"
+
+
+def _to_discord_timestamp(date_str: str) -> str:
+    """文字列の日付をDiscord用タイムスタンプ構文に変換する"""
+    try:
+        # ハイフンが含まれているかでフォーマットを動的に判定
+        if "-" in date_str:
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
+        else:
+            # 20260606 のようなハイフンなし(8桁)の入力に対応
+            dt = datetime.strptime(date_str, "%Y%m%d")
+            
+        dt = dt.replace(tzinfo=ZoneInfo("Asia/Tokyo"))
+        unix_ts = int(dt.timestamp())
+        
+        return f"<t:{unix_ts}:d>"
+        
+    except ValueError:
+        # 想定外の入力（例: "あいうえお"など）が来た場合はそのまま返す
+        return date_str.replace('-', '/')
 
 def _format_period(from_date: str | None, to_date: str | None) -> str:
     if from_date is None and to_date is None:
         return "全期間"
-    if from_date is not None and to_date is not None:
-        return f"{from_date} から {to_date} まで"
-    if from_date is not None:
-        return f"{from_date} 以降"
-    return f"{to_date} 以前"
+
+    # ヘルパー関数を通してDiscord用文字列に変換
+    from_str = _to_discord_timestamp(from_date) if from_date else None
+    to_str = _to_discord_timestamp(to_date) if to_date else None
+
+    if from_str and to_str:
+        return f"{from_str} から {to_str} まで"
+    if from_str:
+        return f"{from_str} 以降"
+    return f"{to_str} 以前"
 
 
 def _format_ranking_line(rank: int, row: DetectionRankingRow) -> str:
@@ -59,7 +107,7 @@ def _format_ranking_line(rank: int, row: DetectionRankingRow) -> str:
 async def add(
     interaction: discord.Interaction,
     word: str,
-    notify_enabled: bool = True,
+    notify_enabled: bool,
 ) -> None:
     assert interaction.guild_id is not None
     database_path = _get_database_path(interaction)
@@ -82,8 +130,9 @@ async def add(
         await interaction.response.send_message(f"登録に失敗しました: {exc}", ephemeral=True)
         return
 
+    creator_label = await _get_creator_label(interaction, created_word.created_by)
     await interaction.response.send_message(
-        f"監視ワードを追加しました: {_format_watch_word(created_word)}",
+        f"監視ワードを追加しました: {_format_watch_word(created_word, creator_label=creator_label)}",
         ephemeral=True,
     )
 
@@ -100,7 +149,9 @@ async def word_list(interaction: discord.Interaction) -> None:
         return
 
     lines = ["監視ワード一覧:"]
-    lines.extend(_format_watch_word(word) for word in words)
+    for word in words:
+        creator_label = await _get_creator_label(interaction, word.created_by)
+        lines.append(_format_watch_word(word, creator_label=creator_label))
     await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
 
@@ -141,8 +192,9 @@ async def edit(
         await interaction.response.send_message(f"更新に失敗しました: {exc}", ephemeral=True)
         return
 
+    creator_label = await _get_creator_label(interaction, updated_word.created_by)
     await interaction.response.send_message(
-        f"監視ワードを更新しました: {_format_watch_word(updated_word)}",
+        f"監視ワードを更新しました: {_format_watch_word(updated_word, creator_label=creator_label)}",
         ephemeral=True,
     )
 
