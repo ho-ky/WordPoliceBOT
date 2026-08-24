@@ -13,6 +13,7 @@ from services.stats import (
     get_word_detection_count,
     get_word_detection_ranking,
     parse_detection_date_range,
+    validate_ranking_options,
     validate_ranking_limit,
 )
 
@@ -70,6 +71,53 @@ def test_parse_detection_date_range_rejects_invalid_date() -> None:
 def test_validate_ranking_limit_rejects_over_max() -> None:
     with pytest.raises(ValueError, match=str(MAX_RANKING_LIMIT)):
         validate_ranking_limit(MAX_RANKING_LIMIT + 1)
+
+
+def test_validate_ranking_options_collects_date_and_limit_errors() -> None:
+    validated_limit, errors = validate_ranking_options(
+        from_date="2026-06-31",
+        to_date=None,
+        limit=MAX_RANKING_LIMIT + 1,
+    )
+
+    assert validated_limit is None
+    assert errors == [
+        "日付は YYYY-MM-DD 形式で指定してください。",
+        f"limit は {MAX_RANKING_LIMIT} 以下で指定してください。",
+    ]
+
+
+def test_validate_ranking_options_collects_only_date_error() -> None:
+    validated_limit, errors = validate_ranking_options(
+        from_date="invalid",
+        to_date=None,
+        limit=10,
+    )
+
+    assert validated_limit == 10
+    assert errors == ["日付は YYYY-MM-DD 形式で指定してください。"]
+
+
+def test_validate_ranking_options_collects_only_limit_error() -> None:
+    validated_limit, errors = validate_ranking_options(
+        from_date="2026-06-01",
+        to_date="2026-06-30",
+        limit=0,
+    )
+
+    assert validated_limit is None
+    assert errors == ["limit は 1 以上で指定してください。"]
+
+
+def test_validate_ranking_options_accepts_valid_input() -> None:
+    validated_limit, errors = validate_ranking_options(
+        from_date="2026-06-01",
+        to_date="2026-06-30",
+        limit=10,
+    )
+
+    assert validated_limit == 10
+    assert errors == []
 
 
 def test_get_word_detection_count_uses_jst_boundaries(tmp_path: Path) -> None:

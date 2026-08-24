@@ -19,7 +19,7 @@ from services.stats import (
     get_watch_word_or_raise,
     get_word_detection_count,
     get_word_detection_ranking,
-    validate_ranking_limit,
+    validate_ranking_options,
 )
 
 from datetime import datetime
@@ -286,7 +286,19 @@ async def ranking(
             guild_id=interaction.guild_id,
             word_id=word_id,
         )
-        validated_limit = validate_ranking_limit(limit)
+        validated_limit, validation_errors = validate_ranking_options(
+            from_date=from_date,
+            to_date=to_date,
+            limit=limit,
+        )
+        if validation_errors:
+            error_lines = "\n".join(f"- {error}" for error in validation_errors)
+            await interaction.response.send_message(
+                f"入力内容に問題があります:\n{error_lines}",
+                ephemeral=True,
+            )
+            return
+        assert validated_limit is not None
         rows = get_word_detection_ranking(
             database_path,
             guild_id=interaction.guild_id,
