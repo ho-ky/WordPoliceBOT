@@ -52,6 +52,28 @@ def validate_ranking_limit(limit: int) -> int:
     return limit
 
 
+def validate_ranking_options(
+    *,
+    from_date: str | None,
+    to_date: str | None,
+    limit: int,
+) -> tuple[int | None, list[str]]:
+    errors: list[str] = []
+    validated_limit: int | None = None
+
+    try:
+        parse_detection_date_range(from_date, to_date)
+    except ValueError as exc:
+        errors.append(str(exc))
+
+    try:
+        validated_limit = validate_ranking_limit(limit)
+    except ValueError as exc:
+        errors.append(str(exc))
+
+    return validated_limit, errors
+
+
 def get_watch_word_or_raise(database_path: Path, *, guild_id: int, word_id: int) -> WatchWord:
     watch_word = get_watch_word(database_path, guild_id=guild_id, word_id=word_id)
     if watch_word is None:
