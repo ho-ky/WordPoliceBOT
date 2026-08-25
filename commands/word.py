@@ -121,10 +121,10 @@ async def add(
             created_by=interaction.user.id,
         )
     except ValueError as exc:
-        await interaction.response.send_message(str(exc), ephemeral=True)
+        await interaction.response.send_message(str(exc))
         return
     except sqlite3.IntegrityError:
-        await interaction.response.send_message("同じ監視ワードはすでに登録されています。", ephemeral=True)
+        await interaction.response.send_message("同じ監視ワードはすでに登録されています。")
         return
     except Exception as exc:
         await interaction.response.send_message(f"登録に失敗しました: {exc}", ephemeral=True)
@@ -133,7 +133,6 @@ async def add(
     creator_label = await _get_creator_label(interaction, created_word.created_by)
     await interaction.response.send_message(
         f"監視ワードを追加しました: {_format_watch_word(created_word, creator_label=creator_label)}",
-        ephemeral=True,
     )
 
 
@@ -145,14 +144,14 @@ async def word_list(interaction: discord.Interaction) -> None:
     words = list_watch_words(database_path, guild_id=interaction.guild_id)
 
     if not words:
-        await interaction.response.send_message("登録済みの監視ワードはありません。", ephemeral=True)
+        await interaction.response.send_message("登録済みの監視ワードはありません。")
         return
 
     lines = ["監視ワード一覧:"]
     for word in words:
         creator_label = await _get_creator_label(interaction, word.created_by)
         lines.append(_format_watch_word(word, creator_label=creator_label))
-    await interaction.response.send_message("\n".join(lines), ephemeral=True)
+    await interaction.response.send_message("\n".join(lines))
 
 
 @word_group.command(name="edit", description="監視ワードを編集します")
@@ -180,13 +179,13 @@ async def edit(
             notify_enabled=notify_enabled,
         )
     except ValueError as exc:
-        await interaction.response.send_message(str(exc), ephemeral=True)
+        await interaction.response.send_message(str(exc))
         return
     except LookupError:
-        await interaction.response.send_message("指定した監視ワードが見つかりません。", ephemeral=True)
+        await interaction.response.send_message("指定した監視ワードが見つかりません。")
         return
     except sqlite3.IntegrityError:
-        await interaction.response.send_message("同じ監視ワードはすでに登録されています。", ephemeral=True)
+        await interaction.response.send_message("同じ監視ワードはすでに登録されています。")
         return
     except Exception as exc:
         await interaction.response.send_message(f"更新に失敗しました: {exc}", ephemeral=True)
@@ -195,7 +194,6 @@ async def edit(
     creator_label = await _get_creator_label(interaction, updated_word.created_by)
     await interaction.response.send_message(
         f"監視ワードを更新しました: {_format_watch_word(updated_word, creator_label=creator_label)}",
-        ephemeral=True,
     )
 
 
@@ -208,10 +206,10 @@ async def delete(interaction: discord.Interaction, word_id: int) -> None:
 
     deleted = delete_watch_word(database_path, guild_id=interaction.guild_id, word_id=word_id)
     if not deleted:
-        await interaction.response.send_message("指定した監視ワードが見つかりません。", ephemeral=True)
+        await interaction.response.send_message("指定した監視ワードが見つかりません。")
         return
 
-    await interaction.response.send_message("監視ワードを削除しました。", ephemeral=True)
+    await interaction.response.send_message("監視ワードを削除しました。")
 
 
 @word_group.command(name="stats", description="監視ワードの検出数を集計します")
@@ -245,10 +243,10 @@ async def stats(
             to_date=to_date,
         )
     except LookupError:
-        await interaction.response.send_message("指定した監視ワードが見つかりません。", ephemeral=True)
+        await interaction.response.send_message("指定した監視ワードが見つかりません。")
         return
     except ValueError as exc:
-        await interaction.response.send_message(str(exc), ephemeral=True)
+        await interaction.response.send_message(str(exc))
         return
     except Exception as exc:
         await interaction.response.send_message(f"集計に失敗しました: {exc}", ephemeral=True)
@@ -257,7 +255,6 @@ async def stats(
     period_label = _format_period(from_date, to_date)
     await interaction.response.send_message(
         f"`{watch_word.word}` の検出数: {count}回\n対象期間: {period_label}",
-        ephemeral=True,
     )
 
 
@@ -295,7 +292,6 @@ async def ranking(
             error_lines = "\n".join(f"- {error}" for error in validation_errors)
             await interaction.response.send_message(
                 f"入力内容に問題があります:\n{error_lines}",
-                ephemeral=True,
             )
             return
         assert validated_limit is not None
@@ -308,10 +304,10 @@ async def ranking(
             limit=validated_limit,
         )
     except LookupError:
-        await interaction.response.send_message("指定した監視ワードが見つかりません。", ephemeral=True)
+        await interaction.response.send_message("指定した監視ワードが見つかりません。")
         return
     except ValueError as exc:
-        await interaction.response.send_message(str(exc), ephemeral=True)
+        await interaction.response.send_message(str(exc))
         return
     except Exception as exc:
         await interaction.response.send_message(f"集計に失敗しました: {exc}", ephemeral=True)
@@ -320,7 +316,6 @@ async def ranking(
     if not rows:
         await interaction.response.send_message(
             f"`{watch_word.word}` の対象期間内の検出はありません。",
-            ephemeral=True,
         )
         return
 
@@ -328,4 +323,4 @@ async def ranking(
     lines = [f"`{watch_word.word}` のランキング ({period_label}, 上位{validated_limit}件)"]
     lines.extend(_format_ranking_line(index + 1, row) for index, row in enumerate(rows))
     embed = discord.Embed(title="検出ランキング", description="\n".join(lines))
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    await interaction.response.send_message(embed=embed)
