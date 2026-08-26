@@ -6,7 +6,7 @@ import sqlite3
 import discord
 from discord import app_commands
 
-from repositories.detections import DetectionRankingRow
+from repositories.detections import DetectionRankingRow, WordDetectionRankingRow
 from repositories.watch_words import (
     WatchWord,
     add_watch_word,
@@ -16,6 +16,7 @@ from repositories.watch_words import (
 )
 from services.stats import (
     DEFAULT_RANKING_LIMIT,
+    get_detection_word_ranking,
     get_watch_word_or_raise,
     get_word_detection_count,
     get_word_detection_ranking,
@@ -99,6 +100,27 @@ def _format_period(from_date: str | None, to_date: str | None) -> str:
 
 def _format_ranking_line(rank: int, row: DetectionRankingRow) -> str:
     return f"{rank}. <@{row.user_id}> {row.count}回"
+
+
+def _competition_ranks(counts: list[int]) -> list[int]:
+    ranks: list[int] = []
+    previous_count: int | None = None
+    rank = 0
+
+    for index, count in enumerate(counts, start=1):
+        if count != previous_count:
+            rank = index
+            previous_count = count
+        ranks.append(rank)
+
+    return ranks
+
+
+def _format_word_ranking_lines(rows: list[WordDetectionRankingRow]) -> list[str]:
+    return [
+        f"{rank}. `{row.word}` {row.count}回"
+        for rank, row in zip(_competition_ranks([row.count for row in rows]), rows)
+    ]
 
 
 @word_group.command(name="add", description="監視ワードを追加します")
@@ -258,7 +280,7 @@ async def stats(
     )
 
 
-@word_group.command(name="ranking", description="監視ワードの検出ランキングを表示します")
+@word_group.command(name="ranking", description="最も多く監視ワードを発言した「ユーザー」のランキングを表示します")
 @app_commands.guild_only()
 @app_commands.describe(
     word_id="集計する監視ワードのID",
@@ -321,6 +343,62 @@ async def ranking(
 
     period_label = _format_period(from_date, to_date)
     lines = [f"`{watch_word.word}` のランキング ({period_label}, 上位{validated_limit}件)"]
-    lines.extend(_format_ranking_line(index + 1, row) for index, row in enumerate(rows))
+    lines.extend(
+        _format_ranking_line(rank, row)
+        for rank, row in zip(_competition_ranks([row.count for row in rows]), rows)
+    )
     embed = discord.Embed(title="検出ランキング", description="\n".join(lines))
+    await interaction.response.send_message(embed=embed)
+
+
+@word_group.command(name="trend", description="最も多く検出された「言葉」のランキングを表示します")
+@app_commands.guild_only()
+@app_commands.describe(
+    from_date="集計開始日 (YYYY-MM-DD)",
+    to_date="集計終了日 (YYYY-MM-DD)",
+    limit="表示件数",
+)
+@app_commands.rename(from_date="from", to_date="to")
+async def trend(
+    interaction: discord.Interaction,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    limit: int = DEFAULT_RANKING_LIMIT,
+) -> None:
+    assert interaction.guild_id is not None
+    database_path = _get_database_path(interaction)
+
+    validated_limit, validation_errors = validate_ranking_options(
+        from_date=from_date,
+        to_date=to_date,
+        limit=limit,
+    )
+    if validation_errors:
+        error_lines = "\n".join(f"- {error}" for error in validation_errors)
+        await interaction.response.send_message(
+            f"入力内容に問題があります:\n{error_lines}",
+        )
+        return
+
+    assert validated_limit is not None
+    try:
+        rows = get_detection_word_ranking(
+            database_path,
+            guild_id=interaction.guild_id,
+            from_date=from_date,
+            to_date=to_date,
+            limit=validated_limit,
+        )
+    except Exception as exc:
+        await interaction.response.send_message(f"集計に失敗しました: {exc}")
+        return
+
+    if not rows:
+        await interaction.response.send_message("対象期間内の検出はありません。")
+        return
+
+    period_label = _format_period(from_date, to_date)
+    lines = [f"単語別検出ランキング ({period_label}, 上位{validated_limit}件)"]
+    lines.extend(_format_word_ranking_lines(rows))
+    embed = discord.Embed(title="単語別検出ランキング", description="\n".join(lines))
     await interaction.response.send_message(embed=embed)
