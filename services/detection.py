@@ -23,7 +23,8 @@ def detect_and_record_message(
         normalized_word = normalize_text(watch_word.word.strip())
         if not normalized_word:
             continue
-        if normalized_word not in normalized_content:
+        occurrence_count = normalized_content.count(normalized_word)
+        if occurrence_count == 0:
             continue
 
         add_detection(
@@ -34,6 +35,7 @@ def detect_and_record_message(
             user_id=user_id,
             channel_id=channel_id,
             message_id=message_id,
+            occurrence_count=occurrence_count,
         )
         matched_words.append(watch_word)
 

@@ -34,9 +34,13 @@ def add_detection(
     user_id: int,
     channel_id: int,
     message_id: int,
+    occurrence_count: int = 1,
 ) -> None:
+    if occurrence_count <= 0:
+        raise ValueError("occurrence_count must be at least 1.")
+
     with _connect(database_path) as connection:
-        connection.execute(
+        connection.executemany(
             """
             INSERT INTO detections (
                 guild_id,
@@ -48,7 +52,10 @@ def add_detection(
             )
             VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (guild_id, word_id, word, user_id, channel_id, message_id),
+            [
+                (guild_id, word_id, word, user_id, channel_id, message_id)
+                for _ in range(occurrence_count)
+            ],
         )
 
 
