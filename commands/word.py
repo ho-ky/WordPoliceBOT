@@ -11,13 +11,13 @@ from repositories.watch_words import (
     WatchWord,
     add_watch_word,
     delete_watch_word,
+    get_watch_word_by_word,
     list_watch_words,
     update_watch_word,
 )
 from services.stats import (
     DEFAULT_RANKING_LIMIT,
     get_detection_word_ranking,
-    get_watch_word_or_raise,
     get_word_detection_count,
     get_word_detection_ranking,
     validate_ranking_options,
@@ -61,7 +61,7 @@ async def _get_creator_label(interaction: discord.Interaction, user_id: int | No
 
 def _format_watch_word(word: WatchWord, *, creator_label: str) -> str:
     status = "ON" if word.notify_enabled else "OFF"
-    return f"`{word.id}` | `{word.word}` | 通知: {status} | 作成者: {creator_label}"
+    return f"`{word.word}` | 通知: {status} | 作成者: {creator_label}"
 
 
 def _to_discord_timestamp(date_str: str) -> str:
@@ -179,25 +179,32 @@ async def word_list(interaction: discord.Interaction) -> None:
 @word_group.command(name="edit", description="監視ワードを編集します")
 @app_commands.guild_only()
 @app_commands.describe(
-    word_id="編集する監視ワードのID",
-    word="新しい単語",
+    word="編集する監視ワード",
+    new_word="新しい単語",
     notify_enabled="検出時の返信を有効にするか",
 )
 async def edit(
     interaction: discord.Interaction,
-    word_id: int,
-    word: str | None = None,
+    word: str,
+    new_word: str | None = None,
     notify_enabled: bool | None = None,
 ) -> None:
     assert interaction.guild_id is not None
     database_path = _get_database_path(interaction)
 
     try:
+        watch_word = get_watch_word_by_word(
+            database_path,
+            guild_id=interaction.guild_id,
+            word=word,
+        )
+        if watch_word is None:
+            raise LookupError
         updated_word = update_watch_word(
             database_path,
             guild_id=interaction.guild_id,
-            word_id=word_id,
-            word=word,
+            word_id=watch_word.id,
+            word=new_word,
             notify_enabled=notify_enabled,
         )
     except ValueError as exc:
@@ -221,12 +228,25 @@ async def edit(
 
 @word_group.command(name="delete", description="監視ワードを削除します")
 @app_commands.guild_only()
-@app_commands.describe(word_id="削除する監視ワードのID")
-async def delete(interaction: discord.Interaction, word_id: int) -> None:
+@app_commands.describe(word="削除する監視ワード")
+async def delete(interaction: discord.Interaction, word: str) -> None:
     assert interaction.guild_id is not None
     database_path = _get_database_path(interaction)
 
-    deleted = delete_watch_word(database_path, guild_id=interaction.guild_id, word_id=word_id)
+    watch_word = get_watch_word_by_word(
+        database_path,
+        guild_id=interaction.guild_id,
+        word=word,
+    )
+    if watch_word is None:
+        await interaction.response.send_message("指定した監視ワードが見つかりません。")
+        return
+
+    deleted = delete_watch_word(
+        database_path,
+        guild_id=interaction.guild_id,
+        word_id=watch_word.id,
+    )
     if not deleted:
         await interaction.response.send_message("指定した監視ワードが見つかりません。")
         return
@@ -237,14 +257,14 @@ async def delete(interaction: discord.Interaction, word_id: int) -> None:
 @word_group.command(name="stats", description="監視ワードの検出数を集計します")
 @app_commands.guild_only()
 @app_commands.describe(
-    word_id="集計する監視ワードのID",
+    word="集計する監視ワード",
     from_date="集計開始日 (YYYY-MM-DD)",
     to_date="集計終了日 (YYYY-MM-DD)",
 )
 @app_commands.rename(from_date="from", to_date="to")
 async def stats(
     interaction: discord.Interaction,
-    word_id: int,
+    word: str,
     from_date: str | None = None,
     to_date: str | None = None,
 ) -> None:
@@ -252,15 +272,17 @@ async def stats(
     database_path = _get_database_path(interaction)
 
     try:
-        watch_word = get_watch_word_or_raise(
+        watch_word = get_watch_word_by_word(
             database_path,
             guild_id=interaction.guild_id,
-            word_id=word_id,
+            word=word,
         )
+        if watch_word is None:
+            raise LookupError
         count = get_word_detection_count(
             database_path,
             guild_id=interaction.guild_id,
-            word_id=word_id,
+            word_id=watch_word.id,
             from_date=from_date,
             to_date=to_date,
         )
@@ -283,7 +305,7 @@ async def stats(
 @word_group.command(name="ranking", description="最も多く監視ワードを発言した「ユーザー」のランキングを表示します")
 @app_commands.guild_only()
 @app_commands.describe(
-    word_id="集計する監視ワードのID",
+    word="集計する監視ワード",
     from_date="集計開始日 (YYYY-MM-DD)",
     to_date="集計終了日 (YYYY-MM-DD)",
     limit="表示件数",
@@ -291,7 +313,7 @@ async def stats(
 @app_commands.rename(from_date="from", to_date="to")
 async def ranking(
     interaction: discord.Interaction,
-    word_id: int,
+    word: str,
     from_date: str | None = None,
     to_date: str | None = None,
     limit: int = DEFAULT_RANKING_LIMIT,
@@ -300,11 +322,13 @@ async def ranking(
     database_path = _get_database_path(interaction)
 
     try:
-        watch_word = get_watch_word_or_raise(
+        watch_word = get_watch_word_by_word(
             database_path,
             guild_id=interaction.guild_id,
-            word_id=word_id,
+            word=word,
         )
+        if watch_word is None:
+            raise LookupError
         validated_limit, validation_errors = validate_ranking_options(
             from_date=from_date,
             to_date=to_date,
@@ -320,7 +344,7 @@ async def ranking(
         rows = get_word_detection_ranking(
             database_path,
             guild_id=interaction.guild_id,
-            word_id=word_id,
+            word_id=watch_word.id,
             from_date=from_date,
             to_date=to_date,
             limit=validated_limit,
