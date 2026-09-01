@@ -251,7 +251,9 @@ async def delete(interaction: discord.Interaction, word: str) -> None:
         await interaction.response.send_message("指定した監視ワードが見つかりません。")
         return
 
-    await interaction.response.send_message("監視ワードを削除しました。")
+    await interaction.response.send_message(
+        f"監視ワード `{watch_word.word}` を削除しました。"
+    )
 
 
 @word_group.command(name="stats", description="監視ワードの検出数を集計します")
