@@ -119,6 +119,33 @@ def get_watch_word(
         return None if row is None else _row_to_watch_word(row)
 
 
+def get_watch_word_by_word(
+    database_path: Path,
+    *,
+    guild_id: int,
+    word: str,
+) -> WatchWord | None:
+    normalized_word = _normalized_word(word)
+    if not normalized_word:
+        return None
+
+    with _connect(database_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT id, guild_id, word, notify_enabled, created_by, created_at, updated_at
+            FROM watch_words
+            WHERE guild_id = ?
+            ORDER BY id ASC
+            """,
+            (guild_id,),
+        ).fetchall()
+
+    for row in rows:
+        if _normalized_word(row["word"]) == normalized_word:
+            return _row_to_watch_word(row)
+    return None
+
+
 def update_watch_word(
     database_path: Path,
     *,

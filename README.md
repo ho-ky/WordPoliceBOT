@@ -27,6 +27,7 @@ Discord サーバー内のメッセージから、ユーザーが設定した任
 - `/word delete`
 - `/word stats`
 - `/word ranking`
+- `/word trend`
 
 ## セットアップ
 

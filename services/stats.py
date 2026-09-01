@@ -4,7 +4,13 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
-from repositories.detections import DetectionRankingRow, count_detections, get_detection_ranking
+from repositories.detections import (
+    DetectionRankingRow,
+    WordDetectionRankingRow,
+    count_detections,
+    get_detection_ranking,
+    get_word_detection_ranking as fetch_word_detection_ranking,
+)
 from repositories.watch_words import WatchWord, get_watch_word
 
 
@@ -114,6 +120,25 @@ def get_word_detection_ranking(
         database_path,
         guild_id=guild_id,
         word_id=word_id,
+        detected_at_from=date_range.detected_at_from,
+        detected_at_to=date_range.detected_at_to,
+        limit=validated_limit,
+    )
+
+
+def get_detection_word_ranking(
+    database_path: Path,
+    *,
+    guild_id: int,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    limit: int = DEFAULT_RANKING_LIMIT,
+) -> list[WordDetectionRankingRow]:
+    validated_limit = validate_ranking_limit(limit)
+    date_range = parse_detection_date_range(from_date, to_date)
+    return fetch_word_detection_ranking(
+        database_path,
+        guild_id=guild_id,
         detected_at_from=date_range.detected_at_from,
         detected_at_to=date_range.detected_at_to,
         limit=validated_limit,
