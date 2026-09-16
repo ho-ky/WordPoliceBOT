@@ -102,7 +102,8 @@ def _format_period(from_date: str | None, to_date: str | None) -> str:
 
 
 def _format_ranking_line(rank: int, row: DetectionRankingRow) -> str:
-    return f"{rank}. <@{row.user_id}> {row.count}回"
+    # Escape the period so Discord does not renumber tied ranks as an ordered list.
+    return f"{rank}\\. <@{row.user_id}> {row.count}回"
 
 
 def _format_word_ranking_lines(
@@ -119,7 +120,7 @@ def _format_word_ranking_lines(
         raise ValueError("The number of ranks must match the number of rows.")
 
     return [
-        f"{rank}. `{row.word}` {row.count}回"
+        f"{rank}\\. `{row.word}` {row.count}回"
         for rank, row in zip(resolved_ranks, rows, strict=True)
     ]
 

@@ -110,9 +110,9 @@ def test_trend_renders_and_logs_competition_ranks(
     assert len(responses) == 1
     embed = responses[0][1]["embed"]
     assert embed.description.splitlines()[1:] == [
-        "1. `界隈` 18回",
-        "1. `かいわい` 18回",
-        "3. `Advance` 5回",
+        r"1\. `界隈` 18回",
+        r"1\. `かいわい` 18回",
+        r"3\. `Advance` 5回",
     ]
     assert (
         "rows=[(1, '界隈', 18), (2, 'かいわい', 18), (3, 'Advance', 5)]"
@@ -171,10 +171,10 @@ def test_ranking_renders_and_logs_competition_ranks(
     assert len(responses) == 1
     embed = responses[0][1]["embed"]
     assert embed.description.splitlines()[1:] == [
-        "1. <@101> 6回",
-        "1. <@102> 6回",
-        "3. <@103> 4回",
-        "4. <@104> 2回",
+        r"1\. <@101> 6回",
+        r"1\. <@102> 6回",
+        r"3\. <@103> 4回",
+        r"4\. <@104> 2回",
     ]
     assert "rows=[(101, 6), (102, 6), (103, 4), (104, 2)]" in caplog.text
     assert "ranks=[1, 1, 3, 4]" in caplog.text

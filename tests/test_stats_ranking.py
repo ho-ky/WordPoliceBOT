@@ -431,10 +431,10 @@ def test_format_word_ranking_lines_assigns_same_rank_to_tied_counts() -> None:
     ]
 
     assert _format_word_ranking_lines(rows) == [
-        "1. `first` 5回",
-        "2. `second` 3回",
-        "2. `third` 3回",
-        "4. `fourth` 1回",
+        r"1\. `first` 5回",
+        r"2\. `second` 3回",
+        r"2\. `third` 3回",
+        r"4\. `fourth` 1回",
     ]
 
 
@@ -451,8 +451,8 @@ def test_format_user_ranking_lines_assigns_same_rank_to_tied_counts() -> None:
         _format_ranking_line(rank, row)
         for rank, row in zip(competition_ranks([row.count for row in rows]), rows)
     ] == [
-        "1. <@1> 5回",
-        "2. <@2> 3回",
-        "2. <@3> 3回",
-        "4. <@4> 1回",
+        r"1\. <@1> 5回",
+        r"2\. <@2> 3回",
+        r"2\. <@3> 3回",
+        r"4\. <@4> 1回",
     ]
