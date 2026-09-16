@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+from pathlib import Path
 
 import discord
 from discord.ext import commands
 
+import commands.word as word_commands
 from config import Settings, load_settings
 from database import initialize_database
 from commands.word import word_group
@@ -25,6 +28,12 @@ class WordPoliceBot(commands.Bot):
 
     async def setup_hook(self) -> None:
         await asyncio.to_thread(initialize_database, self.settings.database_path)
+        logging.info(
+            "WordPoliceBot started pid=%s cwd=%s word_command_module=%s",
+            os.getpid(),
+            Path.cwd(),
+            Path(word_commands.__file__).resolve(),
+        )
 
         if self.settings.command_guild_id is not None:
             guild = discord.Object(id=self.settings.command_guild_id)

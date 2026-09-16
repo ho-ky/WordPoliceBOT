@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 import sqlite3
 
@@ -17,6 +18,7 @@ from repositories.watch_words import (
 )
 from services.stats import (
     DEFAULT_RANKING_LIMIT,
+    competition_ranks,
     get_detection_word_ranking,
     get_word_detection_count,
     get_word_detection_ranking,
@@ -28,6 +30,7 @@ from zoneinfo import ZoneInfo
 
 
 word_group = app_commands.Group(name="word", description="監視ワードを管理します")
+logger = logging.getLogger(__name__)
 
 
 def _get_database_path(interaction: discord.Interaction) -> Path:
@@ -102,24 +105,22 @@ def _format_ranking_line(rank: int, row: DetectionRankingRow) -> str:
     return f"{rank}. <@{row.user_id}> {row.count}回"
 
 
-def _competition_ranks(counts: list[int]) -> list[int]:
-    ranks: list[int] = []
-    previous_count: int | None = None
-    rank = 0
+def _format_word_ranking_lines(
+    rows: list[WordDetectionRankingRow],
+    *,
+    ranks: list[int] | None = None,
+) -> list[str]:
+    resolved_ranks = (
+        ranks
+        if ranks is not None
+        else competition_ranks(row.count for row in rows)
+    )
+    if len(resolved_ranks) != len(rows):
+        raise ValueError("The number of ranks must match the number of rows.")
 
-    for index, count in enumerate(counts, start=1):
-        if count != previous_count:
-            rank = index
-            previous_count = count
-        ranks.append(rank)
-
-    return ranks
-
-
-def _format_word_ranking_lines(rows: list[WordDetectionRankingRow]) -> list[str]:
     return [
         f"{rank}. `{row.word}` {row.count}回"
-        for rank, row in zip(_competition_ranks([row.count for row in rows]), rows)
+        for rank, row in zip(resolved_ranks, rows, strict=True)
     ]
 
 
@@ -369,9 +370,17 @@ async def ranking(
 
     period_label = _format_period(from_date, to_date)
     lines = [f"`{watch_word.word}` のランキング ({period_label}, 上位{validated_limit}件)"]
+    ranks = competition_ranks(row.count for row in rows)
+    logger.info(
+        "/word ranking render source=%s guild_id=%s rows=%s ranks=%s",
+        Path(__file__).resolve(),
+        interaction.guild_id,
+        [(row.user_id, row.count) for row in rows],
+        ranks,
+    )
     lines.extend(
         _format_ranking_line(rank, row)
-        for rank, row in zip(_competition_ranks([row.count for row in rows]), rows)
+        for rank, row in zip(ranks, rows, strict=True)
     )
     embed = discord.Embed(title="検出ランキング", description="\n".join(lines))
     await interaction.response.send_message(embed=embed)
@@ -425,6 +434,14 @@ async def trend(
 
     period_label = _format_period(from_date, to_date)
     lines = [f"単語別検出ランキング ({period_label}, 上位{validated_limit}件)"]
-    lines.extend(_format_word_ranking_lines(rows))
+    ranks = competition_ranks(row.count for row in rows)
+    logger.info(
+        "/word trend render source=%s guild_id=%s rows=%s ranks=%s",
+        Path(__file__).resolve(),
+        interaction.guild_id,
+        [(row.word_id, row.word, row.count) for row in rows],
+        ranks,
+    )
+    lines.extend(_format_word_ranking_lines(rows, ranks=ranks))
     embed = discord.Embed(title="単語別検出ランキング", description="\n".join(lines))
     await interaction.response.send_message(embed=embed)

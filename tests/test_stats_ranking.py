@@ -6,12 +6,13 @@ from pathlib import Path
 import pytest
 
 from database import initialize_database
-from commands.word import _competition_ranks, _format_ranking_line, _format_word_ranking_lines
+from commands.word import _format_ranking_line, _format_word_ranking_lines
 from repositories.detections import DetectionRankingRow, WordDetectionRankingRow
 from repositories.watch_words import add_watch_word
 from services.stats import (
     DEFAULT_RANKING_LIMIT,
     MAX_RANKING_LIMIT,
+    competition_ranks,
     get_word_detection_count,
     get_detection_word_ranking,
     get_word_detection_ranking,
@@ -74,6 +75,10 @@ def test_parse_detection_date_range_rejects_invalid_date() -> None:
 def test_validate_ranking_limit_rejects_over_max() -> None:
     with pytest.raises(ValueError, match=str(MAX_RANKING_LIMIT)):
         validate_ranking_limit(MAX_RANKING_LIMIT + 1)
+
+
+def test_competition_ranks_assigns_same_rank_to_tied_counts() -> None:
+    assert competition_ranks([6, 6, 4, 2]) == [1, 1, 3, 4]
 
 
 def test_validate_ranking_options_collects_date_and_limit_errors() -> None:
@@ -272,6 +277,7 @@ def test_get_word_detection_ranking_orders_by_count_and_user(tmp_path: Path) -> 
 
     assert [row.user_id for row in rows] == [20, 10, 15]
     assert [row.count for row in rows] == [3, 2, 2]
+    assert all(type(row.count) is int for row in rows)
 
 
 def test_get_word_detection_ranking_rejects_limit_over_max() -> None:
@@ -332,6 +338,7 @@ def test_get_detection_word_ranking_orders_by_count_and_word_id(tmp_path: Path) 
         (second_word.id, "second", 2),
         (third_word.id, "third", 2),
     ]
+    assert all(type(row.count) is int for row in rows)
 
 
 def test_get_detection_word_ranking_uses_jst_period_and_excludes_zero_count_words(
@@ -439,10 +446,10 @@ def test_format_user_ranking_lines_assigns_same_rank_to_tied_counts() -> None:
         DetectionRankingRow(user_id=4, count=1),
     ]
 
-    assert _competition_ranks([row.count for row in rows]) == [1, 2, 2, 4]
+    assert competition_ranks([row.count for row in rows]) == [1, 2, 2, 4]
     assert [
         _format_ranking_line(rank, row)
-        for rank, row in zip(_competition_ranks([row.count for row in rows]), rows)
+        for rank, row in zip(competition_ranks([row.count for row in rows]), rows)
     ] == [
         "1. <@1> 5回",
         "2. <@2> 3回",

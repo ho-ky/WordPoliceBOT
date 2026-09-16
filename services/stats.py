@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
@@ -24,6 +25,21 @@ MAX_RANKING_LIMIT = 100
 class UTCDateRange:
     detected_at_from: str | None
     detected_at_to: str | None
+
+
+def competition_ranks(counts: Iterable[int]) -> list[int]:
+    """Return competition ranks for counts already ordered from highest to lowest."""
+    ranks: list[int] = []
+    previous_count: int | None = None
+    rank = 0
+
+    for index, count in enumerate(counts, start=1):
+        if count != previous_count:
+            rank = index
+            previous_count = count
+        ranks.append(rank)
+
+    return ranks
 
 
 def _format_utc_sqlite(dt: datetime) -> str:
