@@ -18,6 +18,24 @@ from services.detection import detect_and_record_message
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 
+async def sync_application_commands(
+    tree: discord.app_commands.CommandTree, guild_id: int | None
+) -> None:
+    if guild_id is None:
+        await tree.sync()
+        return
+
+    guild = discord.Object(id=guild_id)
+    tree.copy_global_to(guild=guild)
+    guild_commands = await tree.sync(guild=guild)
+    logging.info("Synced %s guild commands for guild %s", len(guild_commands), guild_id)
+
+    # Guild-scoped commands and old global registrations appear twice in this guild.
+    tree.clear_commands(guild=None)
+    global_commands = await tree.sync()
+    logging.info("Remaining global commands: %s", len(global_commands))
+
+
 class WordPoliceBot(commands.Bot):
     def __init__(self, *, settings: Settings) -> None:
         intents = discord.Intents.default()
@@ -35,12 +53,7 @@ class WordPoliceBot(commands.Bot):
             Path(word_commands.__file__).resolve(),
         )
 
-        if self.settings.command_guild_id is not None:
-            guild = discord.Object(id=self.settings.command_guild_id)
-            self.tree.copy_global_to(guild=guild)
-            await self.tree.sync(guild=guild)
-        else:
-            await self.tree.sync()
+        await sync_application_commands(self.tree, self.settings.command_guild_id)
 
     async def on_message(self, message: discord.Message) -> None:
         if message.author.bot or message.guild is None:
