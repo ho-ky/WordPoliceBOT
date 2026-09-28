@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+from pathlib import Path
 
 import discord
 from discord.ext import commands
 
+import commands.word as word_commands
 from config import Settings, load_settings
-from database import initialize_database
+from database import check_database_connection
 from commands.word import word_group
 from services.detection import detect_and_record_message
 
@@ -21,10 +24,16 @@ class WordPoliceBot(commands.Bot):
         intents.message_content = True
         super().__init__(command_prefix=commands.when_mentioned, intents=intents)
         self.settings = settings
-        self.database_path = settings.database_path
+        self.database_url = settings.database_url
 
     async def setup_hook(self) -> None:
-        await asyncio.to_thread(initialize_database, self.settings.database_path)
+        await asyncio.to_thread(check_database_connection, self.settings.database_url)
+        logging.info(
+            "WordPoliceBot started pid=%s cwd=%s word_command_module=%s",
+            os.getpid(),
+            Path.cwd(),
+            Path(word_commands.__file__).resolve(),
+        )
 
         if self.settings.command_guild_id is not None:
             guild = discord.Object(id=self.settings.command_guild_id)
@@ -42,7 +51,7 @@ class WordPoliceBot(commands.Bot):
         try:
             matched_words = await asyncio.to_thread(
                 detect_and_record_message,
-                self.settings.database_path,
+                self.settings.database_url,
                 guild_id=message.guild.id,
                 content=message.content,
                 user_id=message.author.id,

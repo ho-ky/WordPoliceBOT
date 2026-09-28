@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
-import sqlite3
+from datetime import datetime
+from typing import Any
 
+from database import connect as _connect
 from repositories.text import normalize_text
 
 
@@ -14,18 +15,11 @@ class WatchWord:
     word: str
     notify_enabled: bool
     created_by: int | None
-    created_at: str
-    updated_at: str
+    created_at: datetime
+    updated_at: datetime
 
 
-def _connect(database_path: Path) -> sqlite3.Connection:
-    connection = sqlite3.connect(database_path)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON;")
-    return connection
-
-
-def _row_to_watch_word(row: sqlite3.Row) -> WatchWord:
+def _row_to_watch_word(row: dict[str, Any]) -> WatchWord:
     return WatchWord(
         id=row["id"],
         guild_id=row["guild_id"],
@@ -42,7 +36,7 @@ def _normalized_word(word: str) -> str:
 
 
 def add_watch_word(
-    database_path: Path,
+    database_url: str,
     *,
     guild_id: int,
     word: str,
@@ -55,12 +49,12 @@ def add_watch_word(
 
     incoming_normalized_word = _normalized_word(normalized_word)
 
-    with _connect(database_path) as connection:
+    with _connect(database_url) as connection:
         existing_words = connection.execute(
             """
             SELECT id, word
             FROM watch_words
-            WHERE guild_id = ?
+            WHERE guild_id = %s
             """,
             (guild_id,),
         ).fetchall()
@@ -71,29 +65,23 @@ def add_watch_word(
         cursor = connection.execute(
             """
             INSERT INTO watch_words (guild_id, word, notify_enabled, created_by)
-            VALUES (?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s)
+            RETURNING id, guild_id, word, notify_enabled, created_by, created_at, updated_at
             """,
-            (guild_id, normalized_word, int(notify_enabled), created_by),
+            (guild_id, normalized_word, notify_enabled, created_by),
         )
-        row = connection.execute(
-            """
-            SELECT id, guild_id, word, notify_enabled, created_by, created_at, updated_at
-            FROM watch_words
-            WHERE id = ?
-            """,
-            (cursor.lastrowid,),
-        ).fetchone()
+        row = cursor.fetchone()
         assert row is not None
         return _row_to_watch_word(row)
 
 
-def list_watch_words(database_path: Path, *, guild_id: int) -> list[WatchWord]:
-    with _connect(database_path) as connection:
+def list_watch_words(database_url: str, *, guild_id: int) -> list[WatchWord]:
+    with _connect(database_url) as connection:
         rows = connection.execute(
             """
             SELECT id, guild_id, word, notify_enabled, created_by, created_at, updated_at
             FROM watch_words
-            WHERE guild_id = ?
+            WHERE guild_id = %s
             ORDER BY id ASC
             """,
             (guild_id,),
@@ -102,17 +90,17 @@ def list_watch_words(database_path: Path, *, guild_id: int) -> list[WatchWord]:
 
 
 def get_watch_word(
-    database_path: Path,
+    database_url: str,
     *,
     guild_id: int,
     word_id: int,
 ) -> WatchWord | None:
-    with _connect(database_path) as connection:
+    with _connect(database_url) as connection:
         row = connection.execute(
             """
             SELECT id, guild_id, word, notify_enabled, created_by, created_at, updated_at
             FROM watch_words
-            WHERE guild_id = ? AND id = ?
+            WHERE guild_id = %s AND id = %s
             """,
             (guild_id, word_id),
         ).fetchone()
@@ -120,7 +108,7 @@ def get_watch_word(
 
 
 def get_watch_word_by_word(
-    database_path: Path,
+    database_url: str,
     *,
     guild_id: int,
     word: str,
@@ -129,12 +117,12 @@ def get_watch_word_by_word(
     if not normalized_word:
         return None
 
-    with _connect(database_path) as connection:
+    with _connect(database_url) as connection:
         rows = connection.execute(
             """
             SELECT id, guild_id, word, notify_enabled, created_by, created_at, updated_at
             FROM watch_words
-            WHERE guild_id = ?
+            WHERE guild_id = %s
             ORDER BY id ASC
             """,
             (guild_id,),
@@ -147,7 +135,7 @@ def get_watch_word_by_word(
 
 
 def update_watch_word(
-    database_path: Path,
+    database_url: str,
     *,
     guild_id: int,
     word_id: int,
@@ -163,12 +151,12 @@ def update_watch_word(
         if not normalized_word:
             raise ValueError("word is required.")
 
-        with _connect(database_path) as connection:
+        with _connect(database_url) as connection:
             existing_words = connection.execute(
                 """
                 SELECT id, word
                 FROM watch_words
-                WHERE guild_id = ? AND id != ?
+                WHERE guild_id = %s AND id != %s
                 """,
                 (guild_id, word_id),
             ).fetchall()
@@ -176,12 +164,12 @@ def update_watch_word(
                 if _normalized_word(existing_word["word"]) == normalized_update_word:
                     raise ValueError("同じ監視ワードはすでに登録されています。")
 
-        updates.append("word = ?")
+        updates.append("word = %s")
         parameters.append(normalized_word)
 
     if notify_enabled is not None:
-        updates.append("notify_enabled = ?")
-        parameters.append(int(notify_enabled))
+        updates.append("notify_enabled = %s")
+        parameters.append(notify_enabled)
 
     if not updates:
         raise ValueError("At least one field must be updated.")
@@ -189,12 +177,12 @@ def update_watch_word(
     updates.append("updated_at = CURRENT_TIMESTAMP")
     parameters.extend([guild_id, word_id])
 
-    with _connect(database_path) as connection:
+    with _connect(database_url) as connection:
         cursor = connection.execute(
             f"""
             UPDATE watch_words
             SET {", ".join(updates)}
-            WHERE guild_id = ? AND id = ?
+            WHERE guild_id = %s AND id = %s
             """,
             parameters,
         )
@@ -205,7 +193,7 @@ def update_watch_word(
             """
             SELECT id, guild_id, word, notify_enabled, created_by, created_at, updated_at
             FROM watch_words
-            WHERE guild_id = ? AND id = ?
+            WHERE guild_id = %s AND id = %s
             """,
             (guild_id, word_id),
         ).fetchone()
@@ -213,12 +201,12 @@ def update_watch_word(
         return _row_to_watch_word(row)
 
 
-def delete_watch_word(database_path: Path, *, guild_id: int, word_id: int) -> bool:
-    with _connect(database_path) as connection:
+def delete_watch_word(database_url: str, *, guild_id: int, word_id: int) -> bool:
+    with _connect(database_url) as connection:
         cursor = connection.execute(
             """
             DELETE FROM watch_words
-            WHERE guild_id = ? AND id = ?
+            WHERE guild_id = %s AND id = %s
             """,
             (guild_id, word_id),
         )

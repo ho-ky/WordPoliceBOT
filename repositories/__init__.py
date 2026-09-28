@@ -1,1 +1,1 @@
-"""SQLite repository helpers for WordPoliceBOT."""
+"""PostgreSQL repository helpers for WordPoliceBOT."""

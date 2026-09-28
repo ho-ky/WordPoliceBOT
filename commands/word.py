@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
-import sqlite3
+import psycopg
 
 import discord
 from discord import app_commands
@@ -17,6 +18,7 @@ from repositories.watch_words import (
 )
 from services.stats import (
     DEFAULT_RANKING_LIMIT,
+    competition_ranks,
     get_detection_word_ranking,
     get_word_detection_count,
     get_word_detection_ranking,
@@ -28,13 +30,14 @@ from zoneinfo import ZoneInfo
 
 
 word_group = app_commands.Group(name="word", description="監視ワードを管理します")
+logger = logging.getLogger(__name__)
 
 
-def _get_database_path(interaction: discord.Interaction) -> Path:
-    database_path = getattr(interaction.client, "database_path", None)
-    if not isinstance(database_path, Path):
-        raise RuntimeError("database_path is not configured on the bot.")
-    return database_path
+def _get_database_url(interaction: discord.Interaction) -> str:
+    database_url = getattr(interaction.client, "database_url", None)
+    if not isinstance(database_url, str) or not database_url:
+        raise RuntimeError("database_url is not configured on the bot.")
+    return database_url
 
 
 async def _get_creator_label(interaction: discord.Interaction, user_id: int | None) -> str:
@@ -99,27 +102,26 @@ def _format_period(from_date: str | None, to_date: str | None) -> str:
 
 
 def _format_ranking_line(rank: int, row: DetectionRankingRow) -> str:
-    return f"{rank}. <@{row.user_id}> {row.count}回"
+    # Escape the period so Discord does not renumber tied ranks as an ordered list.
+    return f"{rank}\\. <@{row.user_id}> {row.count}回"
 
 
-def _competition_ranks(counts: list[int]) -> list[int]:
-    ranks: list[int] = []
-    previous_count: int | None = None
-    rank = 0
+def _format_word_ranking_lines(
+    rows: list[WordDetectionRankingRow],
+    *,
+    ranks: list[int] | None = None,
+) -> list[str]:
+    resolved_ranks = (
+        ranks
+        if ranks is not None
+        else competition_ranks(row.count for row in rows)
+    )
+    if len(resolved_ranks) != len(rows):
+        raise ValueError("The number of ranks must match the number of rows.")
 
-    for index, count in enumerate(counts, start=1):
-        if count != previous_count:
-            rank = index
-            previous_count = count
-        ranks.append(rank)
-
-    return ranks
-
-
-def _format_word_ranking_lines(rows: list[WordDetectionRankingRow]) -> list[str]:
     return [
-        f"{rank}. `{row.word}` {row.count}回"
-        for rank, row in zip(_competition_ranks([row.count for row in rows]), rows)
+        f"{rank}\\. `{row.word}` {row.count}回"
+        for rank, row in zip(resolved_ranks, rows, strict=True)
     ]
 
 
@@ -132,11 +134,11 @@ async def add(
     notify_enabled: bool,
 ) -> None:
     assert interaction.guild_id is not None
-    database_path = _get_database_path(interaction)
+    database_url = _get_database_url(interaction)
 
     try:
         created_word = add_watch_word(
-            database_path,
+            database_url,
             guild_id=interaction.guild_id,
             word=word,
             notify_enabled=notify_enabled,
@@ -145,11 +147,12 @@ async def add(
     except ValueError as exc:
         await interaction.response.send_message(str(exc))
         return
-    except sqlite3.IntegrityError:
+    except psycopg.errors.UniqueViolation:
         await interaction.response.send_message("同じ監視ワードはすでに登録されています。")
         return
-    except Exception as exc:
-        await interaction.response.send_message(f"登録に失敗しました: {exc}", ephemeral=True)
+    except Exception:
+        logger.exception("failed to add watch word")
+        await interaction.response.send_message("登録に失敗しました。", ephemeral=True)
         return
 
     creator_label = await _get_creator_label(interaction, created_word.created_by)
@@ -162,8 +165,8 @@ async def add(
 @app_commands.guild_only()
 async def word_list(interaction: discord.Interaction) -> None:
     assert interaction.guild_id is not None
-    database_path = _get_database_path(interaction)
-    words = list_watch_words(database_path, guild_id=interaction.guild_id)
+    database_url = _get_database_url(interaction)
+    words = list_watch_words(database_url, guild_id=interaction.guild_id)
 
     if not words:
         await interaction.response.send_message("登録済みの監視ワードはありません。")
@@ -190,18 +193,18 @@ async def edit(
     notify_enabled: bool | None = None,
 ) -> None:
     assert interaction.guild_id is not None
-    database_path = _get_database_path(interaction)
+    database_url = _get_database_url(interaction)
 
     try:
         watch_word = get_watch_word_by_word(
-            database_path,
+            database_url,
             guild_id=interaction.guild_id,
             word=word,
         )
         if watch_word is None:
             raise LookupError
         updated_word = update_watch_word(
-            database_path,
+            database_url,
             guild_id=interaction.guild_id,
             word_id=watch_word.id,
             word=new_word,
@@ -213,11 +216,12 @@ async def edit(
     except LookupError:
         await interaction.response.send_message("指定した監視ワードが見つかりません。")
         return
-    except sqlite3.IntegrityError:
+    except psycopg.errors.UniqueViolation:
         await interaction.response.send_message("同じ監視ワードはすでに登録されています。")
         return
-    except Exception as exc:
-        await interaction.response.send_message(f"更新に失敗しました: {exc}", ephemeral=True)
+    except Exception:
+        logger.exception("failed to update watch word")
+        await interaction.response.send_message("更新に失敗しました。", ephemeral=True)
         return
 
     creator_label = await _get_creator_label(interaction, updated_word.created_by)
@@ -231,10 +235,10 @@ async def edit(
 @app_commands.describe(word="削除する監視ワード")
 async def delete(interaction: discord.Interaction, word: str) -> None:
     assert interaction.guild_id is not None
-    database_path = _get_database_path(interaction)
+    database_url = _get_database_url(interaction)
 
     watch_word = get_watch_word_by_word(
-        database_path,
+        database_url,
         guild_id=interaction.guild_id,
         word=word,
     )
@@ -243,7 +247,7 @@ async def delete(interaction: discord.Interaction, word: str) -> None:
         return
 
     deleted = delete_watch_word(
-        database_path,
+        database_url,
         guild_id=interaction.guild_id,
         word_id=watch_word.id,
     )
@@ -271,18 +275,18 @@ async def stats(
     to_date: str | None = None,
 ) -> None:
     assert interaction.guild_id is not None
-    database_path = _get_database_path(interaction)
+    database_url = _get_database_url(interaction)
 
     try:
         watch_word = get_watch_word_by_word(
-            database_path,
+            database_url,
             guild_id=interaction.guild_id,
             word=word,
         )
         if watch_word is None:
             raise LookupError
         count = get_word_detection_count(
-            database_path,
+            database_url,
             guild_id=interaction.guild_id,
             word_id=watch_word.id,
             from_date=from_date,
@@ -294,8 +298,9 @@ async def stats(
     except ValueError as exc:
         await interaction.response.send_message(str(exc))
         return
-    except Exception as exc:
-        await interaction.response.send_message(f"集計に失敗しました: {exc}", ephemeral=True)
+    except Exception:
+        logger.exception("failed to aggregate detections")
+        await interaction.response.send_message("集計に失敗しました。", ephemeral=True)
         return
 
     period_label = _format_period(from_date, to_date)
@@ -321,11 +326,11 @@ async def ranking(
     limit: int = DEFAULT_RANKING_LIMIT,
 ) -> None:
     assert interaction.guild_id is not None
-    database_path = _get_database_path(interaction)
+    database_url = _get_database_url(interaction)
 
     try:
         watch_word = get_watch_word_by_word(
-            database_path,
+            database_url,
             guild_id=interaction.guild_id,
             word=word,
         )
@@ -344,7 +349,7 @@ async def ranking(
             return
         assert validated_limit is not None
         rows = get_word_detection_ranking(
-            database_path,
+            database_url,
             guild_id=interaction.guild_id,
             word_id=watch_word.id,
             from_date=from_date,
@@ -357,8 +362,9 @@ async def ranking(
     except ValueError as exc:
         await interaction.response.send_message(str(exc))
         return
-    except Exception as exc:
-        await interaction.response.send_message(f"集計に失敗しました: {exc}", ephemeral=True)
+    except Exception:
+        logger.exception("failed to aggregate detections")
+        await interaction.response.send_message("集計に失敗しました。", ephemeral=True)
         return
 
     if not rows:
@@ -369,9 +375,17 @@ async def ranking(
 
     period_label = _format_period(from_date, to_date)
     lines = [f"`{watch_word.word}` のランキング ({period_label}, 上位{validated_limit}件)"]
+    ranks = competition_ranks(row.count for row in rows)
+    logger.info(
+        "/word ranking render source=%s guild_id=%s rows=%s ranks=%s",
+        Path(__file__).resolve(),
+        interaction.guild_id,
+        [(row.user_id, row.count) for row in rows],
+        ranks,
+    )
     lines.extend(
         _format_ranking_line(rank, row)
-        for rank, row in zip(_competition_ranks([row.count for row in rows]), rows)
+        for rank, row in zip(ranks, rows, strict=True)
     )
     embed = discord.Embed(title="検出ランキング", description="\n".join(lines))
     await interaction.response.send_message(embed=embed)
@@ -392,7 +406,7 @@ async def trend(
     limit: int = DEFAULT_RANKING_LIMIT,
 ) -> None:
     assert interaction.guild_id is not None
-    database_path = _get_database_path(interaction)
+    database_url = _get_database_url(interaction)
 
     validated_limit, validation_errors = validate_ranking_options(
         from_date=from_date,
@@ -409,14 +423,15 @@ async def trend(
     assert validated_limit is not None
     try:
         rows = get_detection_word_ranking(
-            database_path,
+            database_url,
             guild_id=interaction.guild_id,
             from_date=from_date,
             to_date=to_date,
             limit=validated_limit,
         )
-    except Exception as exc:
-        await interaction.response.send_message(f"集計に失敗しました: {exc}")
+    except Exception:
+        logger.exception("failed to aggregate word trend")
+        await interaction.response.send_message("集計に失敗しました。", ephemeral=True)
         return
 
     if not rows:
@@ -425,6 +440,14 @@ async def trend(
 
     period_label = _format_period(from_date, to_date)
     lines = [f"単語別検出ランキング ({period_label}, 上位{validated_limit}件)"]
-    lines.extend(_format_word_ranking_lines(rows))
+    ranks = competition_ranks(row.count for row in rows)
+    logger.info(
+        "/word trend render source=%s guild_id=%s rows=%s ranks=%s",
+        Path(__file__).resolve(),
+        interaction.guild_id,
+        [(row.word_id, row.word, row.count) for row in rows],
+        ranks,
+    )
+    lines.extend(_format_word_ranking_lines(rows, ranks=ranks))
     embed = discord.Embed(title="単語別検出ランキング", description="\n".join(lines))
     await interaction.response.send_message(embed=embed)
