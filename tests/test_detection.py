@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-from pathlib import Path
 
-from database import initialize_database
 from repositories.detections import count_detections
 from repositories.watch_words import add_watch_word
 from services.detection import detect_and_record_message
 
 
-def test_detect_and_record_counts_repeated_word_occurrences(tmp_path: Path) -> None:
-    db_path = tmp_path / "detection.db"
-    initialize_database(db_path)
+def test_detect_and_record_counts_repeated_word_occurrences(db_url: str) -> None:
+    db_path = db_url
     word = add_watch_word(
         db_path,
         guild_id=1,
@@ -32,9 +29,8 @@ def test_detect_and_record_counts_repeated_word_occurrences(tmp_path: Path) -> N
     assert count_detections(db_path, guild_id=1, word_id=word.id) == 3
 
 
-def test_detect_and_record_counts_each_word_independently(tmp_path: Path) -> None:
-    db_path = tmp_path / "detection_multiple_words.db"
-    initialize_database(db_path)
+def test_detect_and_record_counts_each_word_independently(db_url: str) -> None:
+    db_path = db_url
     first_word = add_watch_word(
         db_path,
         guild_id=1,
@@ -64,9 +60,8 @@ def test_detect_and_record_counts_each_word_independently(tmp_path: Path) -> Non
     assert count_detections(db_path, guild_id=1, word_id=second_word.id) == 2
 
 
-def test_detect_and_record_applies_normalization_before_counting(tmp_path: Path) -> None:
-    db_path = tmp_path / "detection_normalized.db"
-    initialize_database(db_path)
+def test_detect_and_record_applies_normalization_before_counting(db_url: str) -> None:
+    db_path = db_url
     word = add_watch_word(
         db_path,
         guild_id=1,
@@ -87,9 +82,8 @@ def test_detect_and_record_applies_normalization_before_counting(tmp_path: Path)
     assert count_detections(db_path, guild_id=1, word_id=word.id) == 3
 
 
-def test_detect_and_record_does_not_count_overlapping_occurrences(tmp_path: Path) -> None:
-    db_path = tmp_path / "detection_overlap.db"
-    initialize_database(db_path)
+def test_detect_and_record_does_not_count_overlapping_occurrences(db_url: str) -> None:
+    db_path = db_url
     word = add_watch_word(
         db_path,
         guild_id=1,
@@ -110,9 +104,8 @@ def test_detect_and_record_does_not_count_overlapping_occurrences(tmp_path: Path
     assert count_detections(db_path, guild_id=1, word_id=word.id) == 1
 
 
-def test_detection_log_is_saved_even_when_notification_is_disabled(tmp_path: Path) -> None:
-    db_path = tmp_path / "detection_disabled_notification.db"
-    initialize_database(db_path)
+def test_detection_log_is_saved_even_when_notification_is_disabled(db_url: str) -> None:
+    db_path = db_url
     word = add_watch_word(
         db_path,
         guild_id=1,

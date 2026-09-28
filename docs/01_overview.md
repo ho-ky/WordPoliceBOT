@@ -12,7 +12,7 @@ WordPoliceBOT は、Discord サーバー内のメッセージから監視ワー�
 
 - Python
 - discord.py
-- SQLite
+- Supabase PostgreSQL
 - python-dotenv
 
 ## 主な機能

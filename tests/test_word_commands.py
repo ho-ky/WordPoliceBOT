@@ -6,7 +6,6 @@ from types import SimpleNamespace
 
 from commands import word as word_commands
 from commands.word import _format_watch_word, word_group
-from database import initialize_database
 from repositories.detections import DetectionRankingRow, WordDetectionRankingRow
 from repositories.watch_words import WatchWord, add_watch_word, get_watch_word_by_word
 
@@ -43,11 +42,10 @@ def test_watch_word_display_does_not_include_internal_id() -> None:
     assert "42" not in formatted
 
 
-def test_delete_displays_deleted_word_and_removes_it(tmp_path) -> None:
-    database_path = tmp_path / "delete_command.db"
-    initialize_database(database_path)
+def test_delete_displays_deleted_word_and_removes_it(db_url) -> None:
+    database_url = db_url
     add_watch_word(
-        database_path,
+        database_url,
         guild_id=1,
         word="word",
         notify_enabled=True,
@@ -57,7 +55,7 @@ def test_delete_displays_deleted_word_and_removes_it(tmp_path) -> None:
     messages: list[str] = []
     interaction = SimpleNamespace(
         guild_id=1,
-        client=SimpleNamespace(database_path=database_path),
+        client=SimpleNamespace(database_url=database_url),
         response=SimpleNamespace(send_message=messages.append),
     )
 
@@ -68,11 +66,11 @@ def test_delete_displays_deleted_word_and_removes_it(tmp_path) -> None:
     asyncio.run(word_group.get_command("delete").callback(interaction, word="word"))
 
     assert messages == ["監視ワード `word` を削除しました。"]
-    assert get_watch_word_by_word(database_path, guild_id=1, word="word") is None
+    assert get_watch_word_by_word(database_url, guild_id=1, word="word") is None
 
 
 def test_trend_renders_and_logs_competition_ranks(
-    tmp_path,
+    db_url,
     monkeypatch,
     caplog,
 ) -> None:
@@ -84,7 +82,7 @@ def test_trend_renders_and_logs_competition_ranks(
     monkeypatch.setattr(
         word_commands,
         "get_detection_word_ranking",
-        lambda database_path, **kwargs: rows,
+        lambda database_url, **kwargs: rows,
     )
     responses: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
@@ -93,7 +91,7 @@ def test_trend_renders_and_logs_competition_ranks(
 
     interaction = SimpleNamespace(
         guild_id=123,
-        client=SimpleNamespace(database_path=tmp_path / "unused.db"),
+        client=SimpleNamespace(database_url=db_url),
         response=SimpleNamespace(send_message=send_message),
     )
 
@@ -122,14 +120,13 @@ def test_trend_renders_and_logs_competition_ranks(
 
 
 def test_ranking_renders_and_logs_competition_ranks(
-    tmp_path,
+    db_url,
     monkeypatch,
     caplog,
 ) -> None:
-    database_path = tmp_path / "ranking_command.db"
-    initialize_database(database_path)
+    database_url = db_url
     add_watch_word(
-        database_path,
+        database_url,
         guild_id=123,
         word="sample",
         notify_enabled=True,
@@ -144,7 +141,7 @@ def test_ranking_renders_and_logs_competition_ranks(
     monkeypatch.setattr(
         word_commands,
         "get_word_detection_ranking",
-        lambda database_path, **kwargs: rows,
+        lambda database_url, **kwargs: rows,
     )
     responses: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
@@ -153,7 +150,7 @@ def test_ranking_renders_and_logs_competition_ranks(
 
     interaction = SimpleNamespace(
         guild_id=123,
-        client=SimpleNamespace(database_path=database_path),
+        client=SimpleNamespace(database_url=database_url),
         response=SimpleNamespace(send_message=send_message),
     )
 

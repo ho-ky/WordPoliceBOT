@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
-import sqlite3
+from datetime import datetime
+
+from database import connect as _connect
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,15 +19,8 @@ class WordDetectionRankingRow:
     count: int
 
 
-def _connect(database_path: Path) -> sqlite3.Connection:
-    connection = sqlite3.connect(database_path)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON;")
-    return connection
-
-
 def add_detection(
-    database_path: Path,
+    database_url: str,
     *,
     guild_id: int,
     word_id: int,
@@ -39,8 +33,9 @@ def add_detection(
     if occurrence_count <= 0:
         raise ValueError("occurrence_count must be at least 1.")
 
-    with _connect(database_path) as connection:
-        connection.executemany(
+    with _connect(database_url) as connection:
+        cursor = connection.cursor()
+        cursor.executemany(
             """
             INSERT INTO detections (
                 guild_id,
@@ -50,7 +45,7 @@ def add_detection(
                 channel_id,
                 message_id
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s)
             """,
             [
                 (guild_id, word_id, word, user_id, channel_id, message_id)
@@ -60,64 +55,64 @@ def add_detection(
 
 
 def count_detections(
-    database_path: Path,
+    database_url: str,
     *,
     guild_id: int,
     word_id: int,
-    detected_at_from: str | None = None,
-    detected_at_to: str | None = None,
+    detected_at_from: datetime | None = None,
+    detected_at_to: datetime | None = None,
 ) -> int:
     query = [
         "SELECT COUNT(*) AS count",
         "FROM detections",
-        "WHERE guild_id = ? AND word_id = ?",
+        "WHERE guild_id = %s AND word_id = %s",
     ]
     parameters: list[object] = [guild_id, word_id]
 
     if detected_at_from is not None:
-        query.append("AND detected_at >= ?")
+        query.append("AND detected_at >= %s")
         parameters.append(detected_at_from)
 
     if detected_at_to is not None:
-        query.append("AND detected_at <= ?")
+        query.append("AND detected_at < %s")
         parameters.append(detected_at_to)
 
-    with _connect(database_path) as connection:
+    with _connect(database_url) as connection:
         row = connection.execute(" ".join(query), parameters).fetchone()
         assert row is not None
         return int(row["count"])
 
 
 def get_detection_ranking(
-    database_path: Path,
+    database_url: str,
     *,
     guild_id: int,
     word_id: int,
-    detected_at_from: str | None = None,
-    detected_at_to: str | None = None,
+    detected_at_from: datetime | None = None,
+    detected_at_to: datetime | None = None,
     limit: int = 10,
 ) -> list[DetectionRankingRow]:
     query = [
         "SELECT user_id, COUNT(*) AS count",
         "FROM detections",
-        "WHERE guild_id = ? AND word_id = ?",
+        "WHERE guild_id = %s AND word_id = %s",
     ]
     parameters: list[object] = [guild_id, word_id]
 
     if detected_at_from is not None:
-        query.append("AND detected_at >= ?")
+        query.append("AND detected_at >= %s")
         parameters.append(detected_at_from)
 
     if detected_at_to is not None:
-        query.append("AND detected_at <= ?")
+        query.append("AND detected_at < %s")
         parameters.append(detected_at_to)
 
     query.append("GROUP BY user_id")
     query.append("ORDER BY count DESC, user_id ASC")
-    query.append("LIMIT ?")
+    query.append("LIMIT %s")
     parameters.append(limit)
 
-    with _connect(database_path) as connection:
+    with _connect(database_url) as connection:
         rows = connection.execute(" ".join(query), parameters).fetchall()
         return [
             DetectionRankingRow(user_id=row["user_id"], count=int(row["count"]))
@@ -126,39 +121,39 @@ def get_detection_ranking(
 
 
 def get_word_detection_ranking(
-    database_path: Path,
+    database_url: str,
     *,
     guild_id: int,
-    detected_at_from: str | None = None,
-    detected_at_to: str | None = None,
+    detected_at_from: datetime | None = None,
+    detected_at_to: datetime | None = None,
     limit: int = 10,
 ) -> list[WordDetectionRankingRow]:
     query = [
         "SELECT watch_words.id AS word_id, watch_words.word, COUNT(detections.id) AS count",
         "FROM watch_words",
         "INNER JOIN detections ON detections.word_id = watch_words.id",
-        "WHERE watch_words.guild_id = ? AND detections.guild_id = ?",
+        "WHERE watch_words.guild_id = %s AND detections.guild_id = %s",
     ]
     parameters: list[object] = [guild_id, guild_id]
 
     if detected_at_from is not None:
-        query.append("AND detections.detected_at >= ?")
+        query.append("AND detections.detected_at >= %s")
         parameters.append(detected_at_from)
 
     if detected_at_to is not None:
-        query.append("AND detections.detected_at <= ?")
+        query.append("AND detections.detected_at < %s")
         parameters.append(detected_at_to)
 
     query.extend(
         [
             "GROUP BY watch_words.id, watch_words.word",
             "ORDER BY count DESC, watch_words.id ASC",
-            "LIMIT ?",
+            "LIMIT %s",
         ]
     )
     parameters.append(limit)
 
-    with _connect(database_path) as connection:
+    with _connect(database_url) as connection:
         rows = connection.execute(" ".join(query), parameters).fetchall()
         return [
             WordDetectionRankingRow(

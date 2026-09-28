@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import sqlite3
-from pathlib import Path
+from datetime import datetime, timezone
+from database import connect
 
 import pytest
 
-from database import initialize_database
 from commands.word import _format_ranking_line, _format_word_ranking_lines
 from repositories.detections import DetectionRankingRow, WordDetectionRankingRow
 from repositories.watch_words import add_watch_word
@@ -23,7 +22,7 @@ from services.stats import (
 
 
 def _seed_detection(
-    db_path: Path,
+    db_path: str,
     *,
     guild_id: int,
     word_id: int,
@@ -31,7 +30,7 @@ def _seed_detection(
     user_id: int,
     detected_at: str,
 ) -> None:
-    with sqlite3.connect(db_path) as connection:
+    with connect(db_path) as connection:
         connection.execute(
             """
             INSERT INTO detections (
@@ -43,13 +42,13 @@ def _seed_detection(
                 message_id,
                 detected_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             """,
             (guild_id, word_id, word, user_id, 100, 200, detected_at),
         )
 
 
-def _prepare_word(db_path: Path) -> int:
+def _prepare_word(db_path: str) -> int:
     created = add_watch_word(
         db_path,
         guild_id=1,
@@ -63,8 +62,8 @@ def _prepare_word(db_path: Path) -> int:
 def test_parse_detection_date_range_converts_jst_to_utc() -> None:
     date_range = parse_detection_date_range("2026-06-01", "2026-06-01")
 
-    assert date_range.detected_at_from == "2026-05-31 15:00:00"
-    assert date_range.detected_at_to == "2026-06-01 14:59:59"
+    assert date_range.detected_at_from == datetime(2026, 5, 31, 15, 0, tzinfo=timezone.utc)
+    assert date_range.detected_at_to == datetime(2026, 6, 1, 15, 0, tzinfo=timezone.utc)
 
 
 def test_parse_detection_date_range_rejects_invalid_date() -> None:
@@ -128,9 +127,8 @@ def test_validate_ranking_options_accepts_valid_input() -> None:
     assert errors == []
 
 
-def test_get_word_detection_count_uses_jst_boundaries(tmp_path: Path) -> None:
-    db_path = tmp_path / "stats.db"
-    initialize_database(db_path)
+def test_get_word_detection_count_uses_jst_boundaries(db_url: str) -> None:
+    db_path = db_url
     word_id = _prepare_word(db_path)
 
     _seed_detection(
@@ -183,9 +181,8 @@ def test_get_word_detection_count_uses_jst_boundaries(tmp_path: Path) -> None:
     ) == 2
 
 
-def test_get_word_detection_count_accepts_open_ended_range(tmp_path: Path) -> None:
-    db_path = tmp_path / "stats_open.db"
-    initialize_database(db_path)
+def test_get_word_detection_count_accepts_open_ended_range(db_url: str) -> None:
+    db_path = db_url
     word_id = _prepare_word(db_path)
 
     _seed_detection(
@@ -214,9 +211,8 @@ def test_get_word_detection_count_accepts_open_ended_range(tmp_path: Path) -> No
     ) == 1
 
 
-def test_get_word_detection_ranking_uses_default_limit(tmp_path: Path) -> None:
-    db_path = tmp_path / "ranking_default.db"
-    initialize_database(db_path)
+def test_get_word_detection_ranking_uses_default_limit(db_url: str) -> None:
+    db_path = db_url
     word_id = _prepare_word(db_path)
 
     for user_id in range(1, 12):
@@ -235,9 +231,8 @@ def test_get_word_detection_ranking_uses_default_limit(tmp_path: Path) -> None:
     assert rows[0].count == 1
 
 
-def test_get_word_detection_ranking_orders_by_count_and_user(tmp_path: Path) -> None:
-    db_path = tmp_path / "ranking_order.db"
-    initialize_database(db_path)
+def test_get_word_detection_ranking_orders_by_count_and_user(db_url: str) -> None:
+    db_path = db_url
     word_id = _prepare_word(db_path)
 
     for _ in range(3):
@@ -285,9 +280,8 @@ def test_get_word_detection_ranking_rejects_limit_over_max() -> None:
         validate_ranking_limit(MAX_RANKING_LIMIT + 1)
 
 
-def test_get_detection_word_ranking_orders_by_count_and_word_id(tmp_path: Path) -> None:
-    db_path = tmp_path / "word_ranking.db"
-    initialize_database(db_path)
+def test_get_detection_word_ranking_orders_by_count_and_word_id(db_url: str) -> None:
+    db_path = db_url
     first_word_id = _prepare_word(db_path)
     second_word = add_watch_word(
         db_path,
@@ -342,10 +336,9 @@ def test_get_detection_word_ranking_orders_by_count_and_word_id(tmp_path: Path) 
 
 
 def test_get_detection_word_ranking_uses_jst_period_and_excludes_zero_count_words(
-    tmp_path: Path,
+    db_url: str,
 ) -> None:
-    db_path = tmp_path / "word_ranking_period.db"
-    initialize_database(db_path)
+    db_path = db_url
     word_id = _prepare_word(db_path)
     add_watch_word(
         db_path,
@@ -398,9 +391,8 @@ def test_get_detection_word_ranking_uses_jst_period_and_excludes_zero_count_word
     assert [(row.word, row.count) for row in rows] == [("sample", 2)]
 
 
-def test_get_detection_word_ranking_uses_default_and_custom_limit(tmp_path: Path) -> None:
-    db_path = tmp_path / "word_ranking_limit.db"
-    initialize_database(db_path)
+def test_get_detection_word_ranking_uses_default_and_custom_limit(db_url: str) -> None:
+    db_path = db_url
     for index in range(DEFAULT_RANKING_LIMIT + 1):
         word = add_watch_word(
             db_path,
