@@ -2,7 +2,7 @@ from __future__ import annotations
 
 
 from repositories.detections import add_detection
-from repositories.text import normalize_text
+from repositories.readings import infer_watch_word_reading, message_reading
 from repositories.watch_words import WatchWord, list_watch_words
 
 
@@ -15,11 +15,15 @@ def detect_and_record_message(
     channel_id: int,
     message_id: int,
 ) -> list[WatchWord]:
-    normalized_content = normalize_text(content)
+    words = list_watch_words(database_url, guild_id=guild_id)
+    if not words:
+        return []
+
+    normalized_content = message_reading(content)
     matched_words: list[WatchWord] = []
 
-    for watch_word in list_watch_words(database_url, guild_id=guild_id):
-        normalized_word = normalize_text(watch_word.word.strip())
+    for watch_word in words:
+        normalized_word = watch_word.reading or infer_watch_word_reading(watch_word.word)
         if not normalized_word:
             continue
         occurrence_count = normalized_content.count(normalized_word)

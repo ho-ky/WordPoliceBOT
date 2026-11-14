@@ -10,5 +10,5 @@ def connect(database_url: str) -> psycopg.Connection:
 
 def check_database_connection(database_url: str) -> None:
     with connect(database_url) as connection:
-        connection.execute("SELECT 1 FROM public.watch_words LIMIT 0")
+        connection.execute("SELECT reading FROM public.watch_words LIMIT 0")
         connection.execute("SELECT 1 FROM public.detections LIMIT 0")

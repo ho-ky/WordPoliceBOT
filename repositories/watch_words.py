@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from database import connect as _connect
+from repositories.readings import validate_reading
 from repositories.text import normalize_text
 
 
@@ -17,6 +18,7 @@ class WatchWord:
     created_by: int | None
     created_at: datetime
     updated_at: datetime
+    reading: str | None = None
 
 
 def _row_to_watch_word(row: dict[str, Any]) -> WatchWord:
@@ -28,6 +30,7 @@ def _row_to_watch_word(row: dict[str, Any]) -> WatchWord:
         created_by=row["created_by"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        reading=row["reading"],
     )
 
 
@@ -42,12 +45,14 @@ def add_watch_word(
     word: str,
     notify_enabled: bool,
     created_by: int | None,
+    reading: str | None = None,
 ) -> WatchWord:
     normalized_word = word.strip()
     if not normalized_word:
         raise ValueError("word is required.")
 
     incoming_normalized_word = _normalized_word(normalized_word)
+    normalized_reading = validate_reading(reading) if reading is not None else None
 
     with _connect(database_url) as connection:
         existing_words = connection.execute(
@@ -64,11 +69,11 @@ def add_watch_word(
 
         cursor = connection.execute(
             """
-            INSERT INTO watch_words (guild_id, word, notify_enabled, created_by)
-            VALUES (%s, %s, %s, %s)
-            RETURNING id, guild_id, word, notify_enabled, created_by, created_at, updated_at
+            INSERT INTO watch_words (guild_id, word, notify_enabled, created_by, reading)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id, guild_id, word, notify_enabled, created_by, created_at, updated_at, reading
             """,
-            (guild_id, normalized_word, notify_enabled, created_by),
+            (guild_id, normalized_word, notify_enabled, created_by, normalized_reading),
         )
         row = cursor.fetchone()
         assert row is not None
@@ -79,7 +84,7 @@ def list_watch_words(database_url: str, *, guild_id: int) -> list[WatchWord]:
     with _connect(database_url) as connection:
         rows = connection.execute(
             """
-            SELECT id, guild_id, word, notify_enabled, created_by, created_at, updated_at
+            SELECT id, guild_id, word, notify_enabled, created_by, created_at, updated_at, reading
             FROM watch_words
             WHERE guild_id = %s
             ORDER BY id ASC
@@ -98,7 +103,7 @@ def get_watch_word(
     with _connect(database_url) as connection:
         row = connection.execute(
             """
-            SELECT id, guild_id, word, notify_enabled, created_by, created_at, updated_at
+            SELECT id, guild_id, word, notify_enabled, created_by, created_at, updated_at, reading
             FROM watch_words
             WHERE guild_id = %s AND id = %s
             """,
@@ -120,7 +125,7 @@ def get_watch_word_by_word(
     with _connect(database_url) as connection:
         rows = connection.execute(
             """
-            SELECT id, guild_id, word, notify_enabled, created_by, created_at, updated_at
+            SELECT id, guild_id, word, notify_enabled, created_by, created_at, updated_at, reading
             FROM watch_words
             WHERE guild_id = %s
             ORDER BY id ASC
@@ -141,6 +146,7 @@ def update_watch_word(
     word_id: int,
     word: str | None = None,
     notify_enabled: bool | None = None,
+    reading: str | None = None,
 ) -> WatchWord:
     updates: list[str] = []
     parameters: list[object] = []
@@ -167,6 +173,10 @@ def update_watch_word(
         updates.append("word = %s")
         parameters.append(normalized_word)
 
+    if reading is not None or word is not None:
+        updates.append("reading = %s")
+        parameters.append(validate_reading(reading) if reading is not None else None)
+
     if notify_enabled is not None:
         updates.append("notify_enabled = %s")
         parameters.append(notify_enabled)
@@ -178,26 +188,17 @@ def update_watch_word(
     parameters.extend([guild_id, word_id])
 
     with _connect(database_url) as connection:
-        cursor = connection.execute(
+        row = connection.execute(
             f"""
             UPDATE watch_words
             SET {", ".join(updates)}
             WHERE guild_id = %s AND id = %s
+            RETURNING id, guild_id, word, notify_enabled, created_by, created_at, updated_at, reading
             """,
             parameters,
-        )
-        if cursor.rowcount == 0:
-            raise LookupError("watch word not found.")
-
-        row = connection.execute(
-            """
-            SELECT id, guild_id, word, notify_enabled, created_by, created_at, updated_at
-            FROM watch_words
-            WHERE guild_id = %s AND id = %s
-            """,
-            (guild_id, word_id),
         ).fetchone()
-        assert row is not None
+        if row is None:
+            raise LookupError("watch word not found.")
         return _row_to_watch_word(row)
 
 

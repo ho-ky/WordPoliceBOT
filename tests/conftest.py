@@ -26,11 +26,9 @@ def postgres_test_url():
             sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database_name))
         )
     try:
-        migration = (
-            ROOT / "supabase/migrations/20260928022746_create_wordpolice_schema.sql"
-        )
         with psycopg.connect(test_url) as connection:
-            connection.execute(migration.read_text(encoding="utf-8"), prepare=False)
+            for migration in sorted((ROOT / "supabase/migrations").glob("*.sql")):
+                connection.execute(migration.read_text(encoding="utf-8"), prepare=False)
         yield test_url
     finally:
         with psycopg.connect(admin_url, autocommit=True) as connection:

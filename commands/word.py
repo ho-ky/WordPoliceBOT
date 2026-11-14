@@ -9,6 +9,7 @@ import discord
 from discord import app_commands
 
 from repositories.detections import DetectionRankingRow, WordDetectionRankingRow
+from repositories.readings import infer_watch_word_reading
 from repositories.watch_words import (
     WatchWord,
     add_watch_word,
@@ -65,7 +66,8 @@ async def _get_creator_label(interaction: discord.Interaction, user_id: int | No
 
 def _format_watch_word(word: WatchWord, *, creator_label: str) -> str:
     status = "ON" if word.notify_enabled else "OFF"
-    return f"`{word.word}` | 通知: {status} | 作成者: {creator_label}"
+    reading = word.reading or infer_watch_word_reading(word.word)
+    return f"`{word.word}` | 読み: {reading} | 通知: {status} | 作成者: {creator_label}"
 
 
 def _to_discord_timestamp(date_str: str) -> str:
@@ -128,37 +130,45 @@ def _format_word_ranking_lines(
 
 @word_group.command(name="add", description="監視ワードを追加します")
 @app_commands.guild_only()
-@app_commands.describe(word="登録する単語", notify_enabled="検出時の返信を有効にするか")
+@app_commands.describe(
+    word="登録する単語",
+    notify_enabled="検出時の返信を有効にするか",
+    reading="検出に使う読み（省略時は自動推定）",
+)
 async def add(
     interaction: discord.Interaction,
     word: str,
     notify_enabled: bool,
+    reading: str | None = None,
 ) -> None:
     assert interaction.guild_id is not None
     database_url = _get_database_url(interaction)
 
+    await interaction.response.defer(thinking=True)
     try:
-        created_word = add_watch_word(
+        created_word = await asyncio.to_thread(
+            add_watch_word,
             database_url,
             guild_id=interaction.guild_id,
             word=word,
             notify_enabled=notify_enabled,
             created_by=interaction.user.id,
+            reading=reading,
         )
     except ValueError as exc:
-        await interaction.response.send_message(str(exc))
+        await interaction.edit_original_response(content=str(exc))
         return
     except psycopg.errors.UniqueViolation:
-        await interaction.response.send_message("同じ監視ワードはすでに登録されています。")
+        await interaction.edit_original_response(content="同じ監視ワードはすでに登録されています。")
         return
     except Exception:
         logger.exception("failed to add watch word")
-        await interaction.response.send_message("登録に失敗しました。", ephemeral=True)
+        await interaction.edit_original_response(content="登録に失敗しました。")
         return
 
     creator_label = await _get_creator_label(interaction, created_word.created_by)
-    await interaction.response.send_message(
-        f"監視ワードを追加しました: {_format_watch_word(created_word, creator_label=creator_label)}",
+    await interaction.edit_original_response(
+        content=f"監視ワードを追加しました: {_format_watch_word(created_word, creator_label=creator_label)}",
     )
 
 
@@ -196,48 +206,54 @@ async def word_list(interaction: discord.Interaction) -> None:
     word="編集する監視ワード",
     new_word="新しい単語",
     notify_enabled="検出時の返信を有効にするか",
+    reading="検出に使う新しい読み",
 )
 async def edit(
     interaction: discord.Interaction,
     word: str,
     new_word: str | None = None,
     notify_enabled: bool | None = None,
+    reading: str | None = None,
 ) -> None:
     assert interaction.guild_id is not None
     database_url = _get_database_url(interaction)
 
+    await interaction.response.defer(thinking=True)
     try:
-        watch_word = get_watch_word_by_word(
+        watch_word = await asyncio.to_thread(
+            get_watch_word_by_word,
             database_url,
             guild_id=interaction.guild_id,
             word=word,
         )
         if watch_word is None:
             raise LookupError
-        updated_word = update_watch_word(
+        updated_word = await asyncio.to_thread(
+            update_watch_word,
             database_url,
             guild_id=interaction.guild_id,
             word_id=watch_word.id,
             word=new_word,
             notify_enabled=notify_enabled,
+            reading=reading,
         )
     except ValueError as exc:
-        await interaction.response.send_message(str(exc))
+        await interaction.edit_original_response(content=str(exc))
         return
     except LookupError:
-        await interaction.response.send_message("指定した監視ワードが見つかりません。")
+        await interaction.edit_original_response(content="指定した監視ワードが見つかりません。")
         return
     except psycopg.errors.UniqueViolation:
-        await interaction.response.send_message("同じ監視ワードはすでに登録されています。")
+        await interaction.edit_original_response(content="同じ監視ワードはすでに登録されています。")
         return
     except Exception:
         logger.exception("failed to update watch word")
-        await interaction.response.send_message("更新に失敗しました。", ephemeral=True)
+        await interaction.edit_original_response(content="更新に失敗しました。")
         return
 
     creator_label = await _get_creator_label(interaction, updated_word.created_by)
-    await interaction.response.send_message(
-        f"監視ワードを更新しました: {_format_watch_word(updated_word, creator_label=creator_label)}",
+    await interaction.edit_original_response(
+        content=f"監視ワードを更新しました: {_format_watch_word(updated_word, creator_label=creator_label)}",
     )
 
 

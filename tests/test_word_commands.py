@@ -16,7 +16,7 @@ def _command_option_names(command_name: str) -> set[str]:
 
 
 def test_edit_uses_word_name_and_new_word_parameters() -> None:
-    assert _command_option_names("edit") == {"word", "new_word", "notify_enabled"}
+    assert _command_option_names("edit") == {"word", "new_word", "notify_enabled", "reading"}
 
 
 def test_delete_stats_and_ranking_use_word_name_parameter() -> None:
@@ -38,7 +38,7 @@ def test_watch_word_display_does_not_include_internal_id() -> None:
 
     formatted = _format_watch_word(watch_word, creator_label="管理者")
 
-    assert formatted == "`word` | 通知: ON | 作成者: 管理者"
+    assert formatted == "`word` | 読み: word | 通知: ON | 作成者: 管理者"
     assert "42" not in formatted
 
 
