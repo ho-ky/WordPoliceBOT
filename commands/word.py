@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 import psycopg
@@ -165,18 +166,28 @@ async def add(
 @app_commands.guild_only()
 async def word_list(interaction: discord.Interaction) -> None:
     assert interaction.guild_id is not None
-    database_url = _get_database_url(interaction)
-    words = list_watch_words(database_url, guild_id=interaction.guild_id)
+    await interaction.response.defer(thinking=True)
+
+    try:
+        words = await asyncio.to_thread(
+            list_watch_words,
+            _get_database_url(interaction),
+            guild_id=interaction.guild_id,
+        )
+    except Exception:
+        logger.exception("failed to list watch words")
+        await interaction.edit_original_response(content="監視ワード一覧の取得に失敗しました。")
+        return
 
     if not words:
-        await interaction.response.send_message("登録済みの監視ワードはありません。")
+        await interaction.edit_original_response(content="登録済みの監視ワードはありません。")
         return
 
     lines = ["監視ワード一覧:"]
     for word in words:
         creator_label = await _get_creator_label(interaction, word.created_by)
         lines.append(_format_watch_word(word, creator_label=creator_label))
-    await interaction.response.send_message("\n".join(lines))
+    await interaction.edit_original_response(content="\n".join(lines))
 
 
 @word_group.command(name="edit", description="監視ワードを編集します")
